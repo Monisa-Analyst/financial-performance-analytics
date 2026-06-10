@@ -119,7 +119,7 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
     ws_exec.title = "Executive Summary"
     ws_exec.views.sheetView[0].showGridLines = True
     
-    ws_exec.cell(row=2, column=2, value="CareMetrics Financial Performance Summary").font = title_font
+    ws_exec.cell(row=2, column=2, value="FinSight Financial Performance Summary").font = title_font
     
     # Helper to create a KPI Card
     def create_kpi_card(ws, start_col, start_row, label, value_formula, number_format):
