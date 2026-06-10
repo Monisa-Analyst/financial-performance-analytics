@@ -52,43 +52,46 @@ st.markdown("""
     
     /* Title banner styling */
     .title-banner {
-        background: linear-gradient(135deg, #1f4e78 0%, #2c3e50 100%);
+        background: linear-gradient(135deg, #064e3b 0%, #022c22 100%);
         padding: 30px;
         border-radius: 16px;
-        color: white;
+        color: #e6fcf5;
         margin-bottom: 25px;
-        box-shadow: 0 4px 20px rgba(31, 78, 120, 0.15);
+        border: 1px solid rgba(16, 185, 129, 0.25);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
     }
     .title-banner h1 {
         margin: 0;
         font-weight: 800;
         font-size: 2.8rem;
+        color: #34d399 !important;
     }
     .title-banner p {
         margin: 5px 0 0 0;
         font-weight: 300;
         font-size: 1.1rem;
-        opacity: 0.9;
+        opacity: 0.95;
+        color: #a7f3d0 !important;
     }
     
     /* Metric Card Styling */
     .metric-card {
-        background: #ffffff;
-        border: 1px solid #eef2f6;
+        background: #111827;
+        border: 1px solid rgba(16, 185, 129, 0.15);
         border-radius: 16px;
         padding: 24px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.02);
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.25);
         transition: all 0.3s ease;
         text-align: center;
     }
     .metric-card:hover {
         transform: translateY(-5px);
-        box-shadow: 0 15px 35px rgba(31, 78, 120, 0.08);
-        border-color: #1f4e78;
+        box-shadow: 0 15px 35px rgba(16, 185, 129, 0.15);
+        border-color: #34d399;
     }
     .metric-label {
         font-size: 0.9rem;
-        color: #8c9ba5;
+        color: #9ca3af;
         font-weight: 600;
         text-transform: uppercase;
         letter-spacing: 0.8px;
@@ -97,48 +100,48 @@ st.markdown("""
     .metric-value {
         font-size: 2.2rem;
         font-weight: 800;
-        color: #1f4e78;
+        color: #10b981;
     }
     
     /* Insight Card Styling */
     .insight-card {
-        background: #f8fafc;
-        border-left: 5px solid #1f4e78;
+        background: #1f2937;
+        border-left: 5px solid #10b981;
         padding: 18px;
         border-radius: 4px 12px 12px 4px;
         margin-bottom: 12px;
-        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.01);
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
     }
     .insight-title {
         font-weight: 600;
-        color: #1f4e78;
+        color: #34d399;
         margin-bottom: 5px;
     }
     .insight-text {
         font-size: 0.95rem;
-        color: #475569;
+        color: #d1d5db;
     }
     
     /* Badge styling */
     .badge-accepted {
-        background-color: #e2fbf0;
-        color: #0d9488;
+        background-color: #022c22;
+        color: #34d399;
         padding: 6px 14px;
         border-radius: 20px;
         font-weight: 600;
         display: inline-block;
     }
     .badge-review {
-        background-color: #fffbeb;
-        color: #d97706;
+        background-color: #78350f;
+        color: #fbbf24;
         padding: 6px 14px;
         border-radius: 20px;
         font-weight: 600;
         display: inline-block;
     }
     .badge-rejected {
-        background-color: #fef2f2;
-        color: #dc2626;
+        background-color: #7f1d1d;
+        color: #fca5a5;
         padding: 6px 14px;
         border-radius: 20px;
         font-weight: 600;
@@ -149,7 +152,7 @@ st.markdown("""
 
 # Sidebar Navigation
 st.sidebar.markdown(
-    "<h2 style='text-align: center; color: #1f4e78; font-weight: 800;'>📊 FinSight</h2>", 
+    "<h2 style='text-align: center; color: #10b981; font-weight: 800;'>📊 FinSight</h2>", 
     unsafe_allow_html=True
 )
 st.sidebar.markdown("---")
@@ -158,7 +161,7 @@ menu = st.sidebar.radio(
     "Navigation Menu",
     [
         "📊 Executive Summary",
-        "🏥 Profitability & Budgets",
+        "🎯 Profitability & Budgets",
         "📥 Ingest Transactions",
         "🔍 Audit Log & Data Quality"
     ]
@@ -230,13 +233,14 @@ if menu == "📊 Executive Summary":
     with col_left:
         st.subheader("📈 Monthly Revenue vs Expense Trends")
         fig_rev_exp = go.Figure()
-        fig_rev_exp.add_trace(go.Scatter(x=df_monthly['month'], y=df_monthly['revenue'], name="Revenue", line=dict(color="#1f4e78", width=3), mode='lines+markers'))
-        fig_rev_exp.add_trace(go.Scatter(x=df_monthly['month'], y=df_monthly['expenses'], name="Expenses", line=dict(color="#e74c3c", width=2), mode='lines+markers'))
+        fig_rev_exp.add_trace(go.Scatter(x=df_monthly['month'], y=df_monthly['revenue'], name="Revenue", line=dict(color="#10b981", width=3), mode='lines+markers'))
+        fig_rev_exp.add_trace(go.Scatter(x=df_monthly['month'], y=df_monthly['expenses'], name="Expenses", line=dict(color="#f87171", width=2), mode='lines+markers'))
         fig_rev_exp.update_layout(
+            template="plotly_dark",
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
-            xaxis_gridcolor="#eef2f6",
-            yaxis_gridcolor="#eef2f6",
+            xaxis_gridcolor="#1f2937",
+            yaxis_gridcolor="#1f2937",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
         )
         st.plotly_chart(fig_rev_exp, use_container_width=True)
@@ -248,9 +252,10 @@ if menu == "📊 Executive Summary":
             x="month",
             y="running_total_revenue",
             labels={"month": "Month", "running_total_revenue": "Running Total Revenue ($)"},
-            color_discrete_sequence=["#1f4e78"]
+            color_discrete_sequence=["#059669"]
         )
         fig_running.update_layout(
+            template="plotly_dark",
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)"
         )
@@ -270,9 +275,10 @@ if menu == "📊 Executive Summary":
             text="rev_growth_pct",
             labels={"month": "Month", "rev_growth_pct": "Growth %"},
             color="rev_growth_pct",
-            color_continuous_scale=["#e74c3c", "#1f4e78"]
+            color_continuous_scale=["#f87171", "#10b981"]
         )
         fig_growth.update_layout(
+            template="plotly_dark",
             plot_bgcolor="rgba(0,0,0,0)",
             paper_bgcolor="rgba(0,0,0,0)",
             coloraxis_showscale=False
@@ -288,9 +294,14 @@ if menu == "📊 Executive Summary":
             values="expenses",
             names="category",
             hole=0.4,
-            color_discrete_sequence=["#1f4e78", "#2c3e50", "#2980b9", "#8c9ba5", "#bdc3c7"]
+            color_discrete_sequence=["#10b981", "#059669", "#047857", "#065f46", "#064e3b"]
         )
-        fig_exp_pie.update_layout(margin=dict(t=10, b=10, l=10, r=10))
+        fig_exp_pie.update_layout(
+            template="plotly_dark",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            margin=dict(t=10, b=10, l=10, r=10)
+        )
         st.plotly_chart(fig_exp_pie, use_container_width=True)
         
     st.markdown("---")
@@ -335,7 +346,7 @@ if menu == "📊 Executive Summary":
         """, unsafe_allow_html=True)
 
 # ----------------- PAGE 2: PROFITABILITY & BUDGETS -----------------
-elif menu == "🏥 Profitability & Budgets":
+elif menu == "🎯 Profitability & Budgets":
     st.markdown("""
     <div class="title-banner">
         <h1>Profitability & Budget Performance</h1>
@@ -423,9 +434,14 @@ elif menu == "🏥 Profitability & Budgets":
             text="net_profit",
             labels={"region": "Region", "net_profit": "Net Profit ($)"},
             color="net_profit",
-            color_continuous_scale=["#9ac5ff", "#1f4e78"]
+            color_continuous_scale=["#047857", "#10b981"]
         )
-        fig_reg_bar.update_layout(plot_bgcolor="rgba(0,0,0,0)", coloraxis_showscale=False)
+        fig_reg_bar.update_layout(
+            template="plotly_dark",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)",
+            coloraxis_showscale=False
+        )
         fig_reg_bar.update_traces(texttemplate='$%{text:,.0f}', textposition='outside')
         st.plotly_chart(fig_reg_bar, use_container_width=True)
         
@@ -457,7 +473,12 @@ elif menu == "🏥 Profitability & Budgets":
             values="net_profit",
             names="product_line",
             hole=0.4,
-            color_discrete_sequence=["#1f4e78", "#2980b9", "#8c9ba5", "#bdc3c7"]
+            color_discrete_sequence=["#10b981", "#059669", "#047857", "#065f46"]
+        )
+        fig_prod_share.update_layout(
+            template="plotly_dark",
+            plot_bgcolor="rgba(0,0,0,0)",
+            paper_bgcolor="rgba(0,0,0,0)"
         )
         st.plotly_chart(fig_prod_share, use_container_width=True)
 
@@ -654,8 +675,8 @@ elif menu == "🔍 Audit Log & Data Quality":
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown(f"""
-        <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 15px;">
-            <h4 style="margin-top:0; color:#1f4e78;">📋 Database Composition</h4>
+        <div style="background-color: #111827; padding: 20px; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.15); margin-bottom: 15px;">
+            <h4 style="margin-top:0; color:#34d399;">📋 Database Composition</h4>
             <p><b>Total Departments in Dim:</b> {total_depts}</p>
             <p><b>Total Regions in Dim:</b> {total_regions}</p>
             <p><b>Total Transactions in Fact Table:</b> {total_trans}</p>
@@ -667,8 +688,8 @@ elif menu == "🔍 Audit Log & Data Quality":
         badge_exp = "<span class='badge-accepted'>Clean</span>" if neg_exp_prod == 0 else f"<span class='badge-rejected'>{neg_exp_prod} Bad Rows</span>"
         
         st.markdown(f"""
-        <div style="background-color: #f8fafc; padding: 20px; border-radius: 12px; border: 1px solid #e2e8f0;">
-            <h4 style="margin-top:0; color:#1f4e78;">🛡️ Production Integrity Audits</h4>
+        <div style="background-color: #111827; padding: 20px; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.15);">
+            <h4 style="margin-top:0; color:#34d399;">🛡️ Production Integrity Audits</h4>
             <p><b>Negative Revenue Check:</b> {badge_rev}</p>
             <p><b>Negative Expense Check:</b> {badge_exp}</p>
         </div>
