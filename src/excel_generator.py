@@ -1,95 +1,51 @@
 import os
-import sqlite3
-import pandas as pd
-from openpyxl import Workbook
+import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
-def create_styled_excel(db_path="src/financial.db", output_path="financial_analysis.xlsx"):
-    print(f"Creating Excel workbook at: {output_path}")
-    conn = sqlite3.connect(db_path)
+def create_styled_excel(excel_path="financial_analysis.xlsx"):
+    print(f"Compiling styled reports in Excel workbook: {excel_path}")
+    if not os.path.exists(excel_path):
+        raise FileNotFoundError(f"Source Excel database not found at {excel_path}. Run db_init.py first.")
+        
+    wb = openpyxl.load_workbook(excel_path)
     
-    # Fetch aggregates for Excel Sheets
-    # 1. Monthly Financials
-    df_monthly = pd.read_sql_query("""
-        SELECT 
-            strftime('%Y-%m', date) as Month,
-            ROUND(SUM(revenue), 2) as Revenue,
-            ROUND(SUM(expenses), 2) as Expenses
-        FROM fact_transactions
-        GROUP BY Month
-        ORDER BY Month
-    """, conn)
+    # Remove existing styled sheets if they exist to prevent duplicates
+    for sheet in ["Executive Summary", "Revenue & Margin Analysis", "Budget vs Actual Report", "Segment Profitability"]:
+        if sheet in wb.sheetnames:
+            del wb[sheet]
+            
+    # Load raw data lists from fact/dimension sheets to know the rows we need to generate formulas for
+    ws_trans = wb["fact_transactions"]
+    ws_depts = wb["dim_departments"]
+    ws_regions = wb["dim_regions"]
+    ws_products = wb["dim_products"]
     
-    # 2. Expenses by Category
-    df_expenses = pd.read_sql_query("""
-        SELECT 
-            c.category_name as Category,
-            ROUND(SUM(f.expenses), 2) as Expenses
-        FROM fact_transactions f
-        JOIN dim_expense_categories c ON f.category_id = c.category_id
-        GROUP BY Category
-        ORDER BY Expenses DESC
-    """, conn)
+    # Extract unique sorted months from transactions
+    dates = []
+    for row in ws_trans.iter_rows(min_row=2, min_col=2, max_col=2, values_only=True):
+        if row[0]:
+            dates.append(row[0][:7]) # YYYY-MM
+    months = sorted(list(set(dates)))
     
-    # 3. Budget vs Actual (by Department for 2025)
-    df_budget_vs_actual = pd.read_sql_query("""
-        WITH Actuals AS (
-            SELECT 
-                d.dept_name as Department,
-                SUM(f.revenue) as Actual_Revenue,
-                SUM(f.expenses) as Actual_Expenses
-            FROM fact_transactions f
-            JOIN dim_departments d ON f.dept_id = d.dept_id
-            GROUP BY Department
-        ),
-        Budgets AS (
-            SELECT 
-                d.dept_name as Department,
-                SUM(b.budgeted_revenue) as Budget_Revenue,
-                SUM(b.budgeted_expenses) as Budget_Expenses
-            FROM fact_budgets b
-            JOIN dim_departments d ON b.dept_id = d.dept_id
-            GROUP BY Department
-        )
-        SELECT 
-            a.Department,
-            ROUND(a.Actual_Revenue, 2) as Actual_Revenue,
-            ROUND(b.Budget_Revenue, 2) as Budget_Revenue,
-            ROUND(a.Actual_Expenses, 2) as Actual_Expenses,
-            ROUND(b.Budget_Expenses, 2) as Budget_Expenses
-        FROM Actuals a
-        JOIN Budgets b ON a.Department = b.Department
-    """, conn)
-    
-    # 4. Regional Profitability
-    df_regions = pd.read_sql_query("""
-        SELECT 
-            r.region_name as Region,
-            ROUND(SUM(f.revenue), 2) as Revenue,
-            ROUND(SUM(f.expenses), 2) as Expenses
-        FROM fact_transactions f
-        JOIN dim_regions r ON f.region_id = r.region_id
-        GROUP BY Region
-        ORDER BY Revenue DESC
-    """, conn)
-    
-    # 5. Product Line Performance
-    df_products = pd.read_sql_query("""
-        SELECT 
-            p.product_name as Product_Line,
-            ROUND(SUM(f.revenue), 2) as Revenue,
-            ROUND(SUM(f.expenses), 2) as Expenses
-        FROM fact_transactions f
-        JOIN dim_products p ON f.product_id = p.product_id
-        GROUP BY Product_Line
-        ORDER BY Revenue DESC
-    """, conn)
-    
-    conn.close()
-    
-    wb = Workbook()
-    
+    # Extract department names
+    departments = []
+    for row in ws_depts.iter_rows(min_row=2, min_col=2, max_col=2, values_only=True):
+        if row[0]:
+            departments.append(row[0])
+            
+    # Extract region names
+    regions = []
+    for row in ws_regions.iter_rows(min_row=2, min_col=2, max_col=2, values_only=True):
+        if row[0]:
+            regions.append(row[0])
+            
+    # Extract product lines
+    products = []
+    for row in ws_products.iter_rows(min_row=2, min_col=2, max_col=2, values_only=True):
+        if row[0]:
+            products.append(row[0])
+            
     # Styling configurations
     font_family = "Segoe UI"
     title_font = Font(name=font_family, size=16, bold=True, color="1F4E78")
@@ -113,77 +69,10 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         top=Side(style='thin', color='7F8C8D'),
         bottom=Side(style='double', color='2C3E50')
     )
-    
-    # --- SHEET 1: EXECUTIVE SUMMARY ---
-    ws_exec = wb.active
-    ws_exec.title = "Executive Summary"
-    ws_exec.views.sheetView[0].showGridLines = True
-    
-    ws_exec.cell(row=2, column=2, value="FinSight Financial Performance Summary").font = title_font
-    
-    # Helper to create a KPI Card
-    def create_kpi_card(ws, start_col, start_row, label, value_formula, number_format):
-        ws.merge_cells(start_row=start_row, start_column=start_col, end_row=start_row, end_column=start_col+1)
-        ws.merge_cells(start_row=start_row+1, start_column=start_col, end_row=start_row+1, end_column=start_col+1)
-        
-        lbl_cell = ws.cell(row=start_row, column=start_col, value=label)
-        lbl_cell.font = Font(name=font_family, size=9, bold=True, color="7F8C8D")
-        lbl_cell.alignment = Alignment(horizontal="center")
-        
-        val_cell = ws.cell(row=start_row+1, column=start_col, value=value_formula)
-        val_cell.font = Font(name=font_family, size=14, bold=True, color="1F4E78")
-        val_cell.alignment = Alignment(horizontal="center")
-        val_cell.number_format = number_format
-        
-        # Border box
-        for r in range(start_row, start_row+2):
-            for c in range(start_col, start_col+2):
-                ws.cell(row=r, column=c).border = thin_border
-                
-    # Add KPI Cards referencing the Monthly Performance sheet
-    create_kpi_card(ws_exec, 2, 4, "TOTAL REVENUE", "='Revenue & Margin Analysis'!B15", "$#,##0.00")
-    create_kpi_card(ws_exec, 5, 4, "TOTAL NET PROFIT", "='Revenue & Margin Analysis'!D15", "$#,##0.00")
-    create_kpi_card(ws_exec, 8, 4, "NET PROFIT MARGIN", "='Revenue & Margin Analysis'!E15", "0.0%")
-    
-    # Financial indicators table
-    ws_exec.cell(row=8, column=2, value="Corporate Performance Overview").font = section_font
-    overview_headers = ["Key Metrics", "Current Year Value", "Target Budget", "Variance"]
-    for c_idx, h in enumerate(overview_headers, start=2):
-        cell = ws_exec.cell(row=9, column=c_idx, value=h)
-        cell.font = header_font
-        cell.fill = header_fill
-        cell.alignment = Alignment(horizontal="center")
-        cell.border = thin_border
-        
-    metrics_list = [
-        ("Total Sales Revenue", "='Revenue & Margin Analysis'!B15", "='Budget vs Actual Report'!C8", "=C10-D10"),
-        ("Operational Expenses", "='Revenue & Margin Analysis'!C15", "='Budget vs Actual Report'!E8", "=D11-C11"),
-        ("Net Operating Profit", "='Revenue & Margin Analysis'!D15", "=C10-C11", "=C12-D12"),
-    ]
-    
-    for r_idx, (m_name, act_f, bud_f, var_f) in enumerate(metrics_list, start=10):
-        c1 = ws_exec.cell(row=r_idx, column=2, value=m_name)
-        c2 = ws_exec.cell(row=r_idx, column=3, value=act_f)
-        c3 = ws_exec.cell(row=r_idx, column=4, value=bud_f)
-        c4 = ws_exec.cell(row=r_idx, column=5, value=var_f)
-        
-        c1.font = bold_font
-        c1.border = thin_border
-        
-        for c in [c2, c3, c4]:
-            c.font = normal_font
-            c.border = thin_border
-            c.number_format = "$#,##0.00"
-            c.alignment = Alignment(horizontal="right")
-            
-    # Add border totals
-    for c in range(2, 6):
-        ws_exec.cell(row=13, column=c).border = Border(bottom=Side(style='double', color='1F4E78'))
-        
-    # --- SHEET 2: REVENUE & MARGIN ANALYSIS ---
-    ws_rev = wb.create_sheet(title="Revenue & Margin Analysis")
+
+    # --- SHEET 1: REVENUE & MARGIN ANALYSIS ---
+    ws_rev = wb.create_sheet(title="Revenue & Margin Analysis", index=0)
     ws_rev.views.sheetView[0].showGridLines = True
-    
     ws_rev.cell(row=1, column=1, value="Monthly Revenue & Profitability Analysis").font = title_font
     
     rev_headers = ["Month", "Revenue", "Expenses", "Net Profit", "Profit Margin", "Running Total Revenue"]
@@ -194,16 +83,17 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         cell.alignment = Alignment(horizontal="center")
         cell.border = thin_border
         
-    for r_idx, row in df_monthly.iterrows():
+    for r_idx, month in enumerate(months):
         excel_row = r_idx + 3
-        # Add month
-        ws_rev.cell(row=excel_row, column=1, value=row["Month"]).font = normal_font
+        # Add month name
+        ws_rev.cell(row=excel_row, column=1, value=month).font = normal_font
         
-        # Add Raw numbers
-        ws_rev.cell(row=excel_row, column=2, value=row["Revenue"])
-        ws_rev.cell(row=excel_row, column=3, value=row["Expenses"])
+        # SUMIFS formulas querying fact_transactions
+        # Revenue is Column C, Date is Column B
+        ws_rev.cell(row=excel_row, column=2, value=f'=SUMIFS(fact_transactions!C:C, fact_transactions!B:B, A{excel_row}&"-*")')
+        # Expenses is Column D
+        ws_rev.cell(row=excel_row, column=3, value=f'=SUMIFS(fact_transactions!D:D, fact_transactions!B:B, A{excel_row}&"-*")')
         
-        # Add Excel Formulas
         # Net Profit = Revenue - Expenses
         ws_rev.cell(row=excel_row, column=4, value=f"=B{excel_row}-C{excel_row}")
         # Profit Margin = Net Profit / Revenue
@@ -211,7 +101,7 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         # Running Total = SUM(B$3:B{current})
         ws_rev.cell(row=excel_row, column=6, value=f"=SUM(B$3:B{excel_row})")
         
-        # Style row cells
+        # Style cells
         for c_idx in range(1, 7):
             cell = ws_rev.cell(row=excel_row, column=c_idx)
             cell.font = normal_font
@@ -229,7 +119,7 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
                 cell.alignment = Alignment(horizontal="center")
                 
     # Add Totals Row
-    tot_row = len(df_monthly) + 3
+    tot_row = len(months) + 3
     ws_rev.cell(row=tot_row, column=1, value="Total").font = bold_font
     ws_rev.cell(row=tot_row, column=2, value=f"=SUM(B3:B{tot_row-1})")
     ws_rev.cell(row=tot_row, column=3, value=f"=SUM(C3:C{tot_row-1})")
@@ -248,11 +138,10 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         elif c_idx == 5:
             cell.number_format = "0.0%"
             cell.alignment = Alignment(horizontal="right")
-            
-    # --- SHEET 3: BUDGET VS ACTUAL REPORT ---
-    ws_bva = wb.create_sheet(title="Budget vs Actual Report")
+
+    # --- SHEET 2: BUDGET VS ACTUAL REPORT ---
+    ws_bva = wb.create_sheet(title="Budget vs Actual Report", index=1)
     ws_bva.views.sheetView[0].showGridLines = True
-    
     ws_bva.cell(row=1, column=1, value="Budget vs Actual Variance Report (by Department)").font = title_font
     
     bva_headers = ["Department", "Actual Revenue", "Budget Revenue", "Revenue Variance", "Actual Expenses", "Budget Expenses", "Expense Variance"]
@@ -263,18 +152,23 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         cell.alignment = Alignment(horizontal="center")
         cell.border = thin_border
         
-    for r_idx, row in df_budget_vs_actual.iterrows():
+    for r_idx, dept in enumerate(departments):
         excel_row = r_idx + 3
+        ws_bva.cell(row=excel_row, column=1, value=dept).font = bold_font
         
-        ws_bva.cell(row=excel_row, column=1, value=row["Department"]).font = bold_font
-        ws_bva.cell(row=excel_row, column=2, value=row["Actual_Revenue"])
-        ws_bva.cell(row=excel_row, column=3, value=row["Budget_Revenue"])
+        # SUMIFS with XLOOKUP to map department name to ID
+        # Actual Revenue
+        ws_bva.cell(row=excel_row, column=2, value=f'=SUMIFS(fact_transactions!C:C, fact_transactions!E:E, XLOOKUP(A{excel_row}, dim_departments!B:B, dim_departments!A:A))')
+        # Budget Revenue (fact_budgets column E is budgeted_revenue, column C is dept_id)
+        ws_bva.cell(row=excel_row, column=3, value=f'=SUMIFS(fact_budgets!E:E, fact_budgets!C:C, XLOOKUP(A{excel_row}, dim_departments!B:B, dim_departments!A:A))')
         # Revenue Variance = Actual - Budget
         ws_bva.cell(row=excel_row, column=4, value=f"=B{excel_row}-C{excel_row}")
         
-        ws_bva.cell(row=excel_row, column=5, value=row["Actual_Expenses"])
-        ws_bva.cell(row=excel_row, column=6, value=row["Budget_Expenses"])
-        # Expense Variance = Budget - Actual (positive is savings)
+        # Actual Expenses
+        ws_bva.cell(row=excel_row, column=5, value=f'=SUMIFS(fact_transactions!D:D, fact_transactions!E:E, XLOOKUP(A{excel_row}, dim_departments!B:B, dim_departments!A:A))')
+        # Budget Expenses (fact_budgets column F is budgeted_expenses)
+        ws_bva.cell(row=excel_row, column=6, value=f'=SUMIFS(fact_budgets!F:F, fact_budgets!C:C, XLOOKUP(A{excel_row}, dim_departments!B:B, dim_departments!A:A))')
+        # Expense Variance = Budget - Actual (Positive is savings)
         ws_bva.cell(row=excel_row, column=7, value=f"=F{excel_row}-E{excel_row}")
         
         for c_idx in range(1, 8):
@@ -288,8 +182,8 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
                 cell.alignment = Alignment(horizontal="right")
                 cell.font = normal_font
                 
-    # Add Totals Row
-    tot_row = len(df_budget_vs_actual) + 3
+    # Totals Row
+    tot_row = len(departments) + 3
     ws_bva.cell(row=tot_row, column=1, value="Total").font = bold_font
     ws_bva.cell(row=tot_row, column=2, value=f"=SUM(B3:B{tot_row-1})")
     ws_bva.cell(row=tot_row, column=3, value=f"=SUM(C3:C{tot_row-1})")
@@ -306,9 +200,9 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         if c_idx > 1:
             cell.number_format = "$#,##0.00"
             cell.alignment = Alignment(horizontal="right")
-            
-    # --- SHEET 4: PROFITABILITY BY SEGMENT ---
-    ws_seg = wb.create_sheet(title="Segment Profitability")
+
+    # --- SHEET 3: SEGMENT PROFITABILITY ---
+    ws_seg = wb.create_sheet(title="Segment Profitability", index=2)
     ws_seg.views.sheetView[0].showGridLines = True
     
     # Regional table
@@ -321,11 +215,12 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         cell.alignment = Alignment(horizontal="center")
         cell.border = thin_border
         
-    for r_idx, row in df_regions.iterrows():
+    for r_idx, region in enumerate(regions):
         excel_row = r_idx + 3
-        ws_seg.cell(row=excel_row, column=1, value=row["Region"]).font = bold_font
-        ws_seg.cell(row=excel_row, column=2, value=row["Revenue"])
-        ws_seg.cell(row=excel_row, column=3, value=row["Expenses"])
+        ws_seg.cell(row=excel_row, column=1, value=region).font = bold_font
+        # SUMIFS with XLOOKUP to map region name to ID (fact_transactions Column F is region_id)
+        ws_seg.cell(row=excel_row, column=2, value=f'=SUMIFS(fact_transactions!C:C, fact_transactions!F:F, XLOOKUP(A{excel_row}, dim_regions!B:B, dim_regions!A:A))')
+        ws_seg.cell(row=excel_row, column=3, value=f'=SUMIFS(fact_transactions!D:D, fact_transactions!F:F, XLOOKUP(A{excel_row}, dim_regions!B:B, dim_regions!A:A))')
         ws_seg.cell(row=excel_row, column=4, value=f"=B{excel_row}-C{excel_row}")
         ws_seg.cell(row=excel_row, column=5, value=f"=IF(B{excel_row}=0,0,D{excel_row}/B{excel_row})")
         
@@ -335,12 +230,14 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
             if c_idx in [2, 3, 4]:
                 cell.number_format = "$#,##0.00"
                 cell.alignment = Alignment(horizontal="right")
+                cell.font = normal_font
             elif c_idx == 5:
                 cell.number_format = "0.0%"
                 cell.alignment = Alignment(horizontal="right")
+                cell.font = normal_font
                 
     # Regional Total
-    reg_tot = len(df_regions) + 3
+    reg_tot = len(regions) + 3
     ws_seg.cell(row=reg_tot, column=1, value="Total").font = bold_font
     ws_seg.cell(row=reg_tot, column=2, value=f"=SUM(B3:B{reg_tot-1})")
     ws_seg.cell(row=reg_tot, column=3, value=f"=SUM(C3:C{reg_tot-1})")
@@ -354,8 +251,10 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         cell.border = double_bottom_border
         if c_idx in [2, 3, 4]:
             cell.number_format = "$#,##0.00"
+            cell.alignment = Alignment(horizontal="right")
         elif c_idx == 5:
             cell.number_format = "0.0%"
+            cell.alignment = Alignment(horizontal="right")
             
     # Product Line table (offset by 2 columns)
     ws_seg.cell(row=1, column=7, value="Profitability by Product Line").font = section_font
@@ -367,11 +266,12 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         cell.alignment = Alignment(horizontal="center")
         cell.border = thin_border
         
-    for r_idx, row in df_products.iterrows():
+    for r_idx, product in enumerate(products):
         excel_row = r_idx + 3
-        ws_seg.cell(row=excel_row, column=7, value=row["Product_Line"]).font = bold_font
-        ws_seg.cell(row=excel_row, column=8, value=row["Revenue"])
-        ws_seg.cell(row=excel_row, column=9, value=row["Expenses"])
+        ws_seg.cell(row=excel_row, column=7, value=product).font = bold_font
+        # SUMIFS with XLOOKUP to map product name to ID (fact_transactions Column G is product_id)
+        ws_seg.cell(row=excel_row, column=8, value=f'=SUMIFS(fact_transactions!C:C, fact_transactions!G:G, XLOOKUP(G{excel_row}, dim_products!B:B, dim_products!A:A))')
+        ws_seg.cell(row=excel_row, column=9, value=f'=SUMIFS(fact_transactions!D:D, fact_transactions!G:G, XLOOKUP(G{excel_row}, dim_products!B:B, dim_products!A:A))')
         ws_seg.cell(row=excel_row, column=10, value=f"=H{excel_row}-I{excel_row}")
         ws_seg.cell(row=excel_row, column=11, value=f"=IF(H{excel_row}=0,0,J{excel_row}/H{excel_row})")
         
@@ -381,12 +281,14 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
             if c_idx in [8, 9, 10]:
                 cell.number_format = "$#,##0.00"
                 cell.alignment = Alignment(horizontal="right")
+                cell.font = normal_font
             elif c_idx == 11:
                 cell.number_format = "0.0%"
                 cell.alignment = Alignment(horizontal="right")
+                cell.font = normal_font
                 
     # Product Total
-    prod_tot = len(df_products) + 3
+    prod_tot = len(products) + 3
     ws_seg.cell(row=prod_tot, column=7, value="Total").font = bold_font
     ws_seg.cell(row=prod_tot, column=8, value=f"=SUM(H3:H{prod_tot-1})")
     ws_seg.cell(row=prod_tot, column=9, value=f"=SUM(I3:I{prod_tot-1})")
@@ -400,9 +302,73 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
         cell.border = double_bottom_border
         if c_idx in [8, 9, 10]:
             cell.number_format = "$#,##0.00"
+            cell.alignment = Alignment(horizontal="right")
         elif c_idx == 11:
             cell.number_format = "0.0%"
+            cell.alignment = Alignment(horizontal="right")
+
+    # --- SHEET 4: EXECUTIVE SUMMARY ---
+    ws_exec = wb.create_sheet(title="Executive Summary", index=0) # Make it the very first sheet
+    ws_exec.views.sheetView[0].showGridLines = True
+    ws_exec.cell(row=2, column=2, value="FinSight Financial Performance Summary").font = title_font
+    
+    # KPI card compiler
+    def create_kpi_card(ws, start_col, start_row, label, value_formula, number_format):
+        ws.merge_cells(start_row=start_row, start_column=start_col, end_row=start_row, end_column=start_col+1)
+        ws.merge_cells(start_row=start_row+1, start_column=start_col, end_row=start_row+1, end_column=start_col+1)
+        
+        lbl_cell = ws.cell(row=start_row, column=start_col, value=label)
+        lbl_cell.font = Font(name=font_family, size=9, bold=True, color="7F8C8D")
+        lbl_cell.alignment = Alignment(horizontal="center")
+        
+        val_cell = ws.cell(row=start_row+1, column=start_col, value=value_formula)
+        val_cell.font = Font(name=font_family, size=14, bold=True, color="1F4E78")
+        val_cell.alignment = Alignment(horizontal="center")
+        val_cell.number_format = number_format
+        
+        for r in range(start_row, start_row+2):
+            for c in range(start_col, start_col+2):
+                ws.cell(row=r, column=c).border = thin_border
+                
+    # Add KPI Cards pointing to the totals row of Revenue sheet
+    create_kpi_card(ws_exec, 2, 4, "TOTAL REVENUE", f"='Revenue & Margin Analysis'!B{tot_row}", "$#,##0.00")
+    create_kpi_card(ws_exec, 5, 4, "TOTAL NET PROFIT", f"='Revenue & Margin Analysis'!D{tot_row}", "$#,##0.00")
+    create_kpi_card(ws_exec, 8, 4, "NET PROFIT MARGIN", f"='Revenue & Margin Analysis'!E{tot_row}", "0.0%")
+    
+    # Overview metrics table
+    ws_exec.cell(row=8, column=2, value="Corporate Performance Overview").font = section_font
+    overview_headers = ["Key Metrics", "Current Year Value", "Target Budget", "Variance"]
+    for c_idx, h in enumerate(overview_headers, start=2):
+        cell = ws_exec.cell(row=9, column=c_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+        cell.border = thin_border
+        
+    metrics_list = [
+        ("Total Sales Revenue", f"='Revenue & Margin Analysis'!B{tot_row}", f"='Budget vs Actual Report'!C{len(departments)+3}", "=C10-D10"),
+        ("Operational Expenses", f"='Revenue & Margin Analysis'!C{tot_row}", f"='Budget vs Actual Report'!F{len(departments)+3}", "=D11-C11"),
+        ("Net Operating Profit", f"='Revenue & Margin Analysis'!D{tot_row}", "=C10-C11", "=C12-D12"),
+    ]
+    
+    for r_idx, (m_name, act_f, bud_f, var_f) in enumerate(metrics_list, start=10):
+        c1 = ws_exec.cell(row=r_idx, column=2, value=m_name)
+        c2 = ws_exec.cell(row=r_idx, column=3, value=act_f)
+        c3 = ws_exec.cell(row=r_idx, column=4, value=bud_f)
+        c4 = ws_exec.cell(row=r_idx, column=5, value=var_f)
+        
+        c1.font = bold_font
+        c1.border = thin_border
+        
+        for c in [c2, c3, c4]:
+            c.font = normal_font
+            c.border = thin_border
+            c.number_format = "$#,##0.00"
+            c.alignment = Alignment(horizontal="right")
             
+    for c in range(2, 6):
+        ws_exec.cell(row=13, column=c).border = Border(bottom=Side(style='double', color='1F4E78'))
+        
     # Auto-fit column widths across all sheets
     for ws in wb.worksheets:
         for col in ws.columns:
@@ -410,15 +376,14 @@ def create_styled_excel(db_path="src/financial.db", output_path="financial_analy
             col_letter = get_column_letter(col[0].column)
             for cell in col:
                 val = str(cell.value or '')
-                if val.startswith('='): # skip length calculation for formulas
+                if val.startswith('='):
                     val = " $1,000,000.00 "
                 max_len = max(max_len, len(val))
             ws.column_dimensions[col_letter].width = max(max_len + 3, 11)
             
-    wb.save(output_path)
-    print("Excel workbook created successfully!")
+    wb.save(excel_path)
+    print("Styled report sheets compiled successfully inside the Excel workbook!")
 
 if __name__ == "__main__":
-    db_file = "src/financial.db"
-    out_file = "financial_analysis.xlsx"
-    create_styled_excel(db_file, out_file)
+    out_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "financial_analysis.xlsx")
+    create_styled_excel(out_file)

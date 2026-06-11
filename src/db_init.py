@@ -1,169 +1,58 @@
 import os
-import sqlite3
 import pandas as pd
 from datetime import datetime
+import openpyxl
 
-def init_database(db_path, trans_csv, budget_csv, invoice_csv=None):
-    print(f"Initializing database at: {db_path}")
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+def init_excel_database(output_path, trans_csv, budget_csv, invoice_csv=None):
+    print(f"Initializing Excel Database at: {output_path}")
     
-    cursor.execute("PRAGMA foreign_keys = ON;")
-    
-    # Drop existing
-    cursor.execute("DROP TABLE IF EXISTS fact_transactions;")
-    cursor.execute("DROP TABLE IF EXISTS fact_budgets;")
-    cursor.execute("DROP TABLE IF EXISTS dim_departments;")
-    cursor.execute("DROP TABLE IF EXISTS dim_regions;")
-    cursor.execute("DROP TABLE IF EXISTS dim_products;")
-    cursor.execute("DROP TABLE IF EXISTS dim_expense_categories;")
-    cursor.execute("DROP TABLE IF EXISTS fact_invoices;")
-    cursor.execute("DROP TABLE IF EXISTS ingestion_log;")
-    
-    # Create tables
-    cursor.execute("""
-    CREATE TABLE dim_departments (
-        dept_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        dept_name TEXT UNIQUE NOT NULL
-    );
-    """)
-    
-    cursor.execute("""
-    CREATE TABLE dim_regions (
-        region_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        region_name TEXT UNIQUE NOT NULL
-    );
-    """)
-    
-    cursor.execute("""
-    CREATE TABLE dim_products (
-        product_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        product_name TEXT UNIQUE NOT NULL
-    );
-    """)
-    
-    cursor.execute("""
-    CREATE TABLE dim_expense_categories (
-        category_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category_name TEXT UNIQUE NOT NULL
-    );
-    """)
-    
-    cursor.execute("""
-    CREATE TABLE fact_transactions (
-        transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        date TEXT NOT NULL,
-        revenue REAL DEFAULT 0,
-        expenses REAL DEFAULT 0,
-        dept_id INTEGER,
-        region_id INTEGER,
-        product_id INTEGER,
-        category_id INTEGER,
-        client_id TEXT,
-        FOREIGN KEY(dept_id) REFERENCES dim_departments(dept_id),
-        FOREIGN KEY(region_id) REFERENCES dim_regions(region_id),
-        FOREIGN KEY(product_id) REFERENCES dim_products(product_id),
-        FOREIGN KEY(category_id) REFERENCES dim_expense_categories(category_id)
-    );
-    """)
-    
-    cursor.execute("""
-    CREATE TABLE fact_budgets (
-        budget_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        month TEXT NOT NULL,
-        dept_id INTEGER,
-        region_id INTEGER,
-        budgeted_revenue REAL DEFAULT 0,
-        budgeted_expenses REAL DEFAULT 0,
-        FOREIGN KEY(dept_id) REFERENCES dim_departments(dept_id),
-        FOREIGN KEY(region_id) REFERENCES dim_regions(region_id)
-    );
-    """)
-    
-    cursor.execute("""
-    CREATE TABLE fact_invoices (
-        invoice_id TEXT PRIMARY KEY,
-        client_id TEXT,
-        issue_date TEXT NOT NULL,
-        amount REAL DEFAULT 0,
-        status TEXT NOT NULL
-    );
-    """)
-    
-    cursor.execute("""
-    CREATE TABLE ingestion_log (
-        batch_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        submitted_at TEXT NOT NULL,
-        filename TEXT NOT NULL,
-        row_count INTEGER NOT NULL,
-        status TEXT NOT NULL,
-        health_score REAL NOT NULL,
-        issues_json TEXT NOT NULL,
-        accepted_rows INTEGER,
-        rejected_rows INTEGER
-    );
-    """)
-    
-    conn.commit()
-    print("Database tables created.")
-    
-    # Load and seed dimensions and transactions
+    # Load raw data files
     df_trans = pd.read_csv(trans_csv)
     df_budget = pd.read_csv(budget_csv)
     
-    # Insert Dimensions
-    depts = set(df_trans["Department"].dropna().unique()).union(set(df_budget["Department"].dropna().unique()))
-    for dept in depts:
-        cursor.execute("INSERT OR IGNORE INTO dim_departments (dept_name) VALUES (?)", (dept,))
-        
-    regions = set(df_trans["Region"].dropna().unique()).union(set(df_budget["Region"].dropna().unique()))
-    for reg in regions:
-        cursor.execute("INSERT OR IGNORE INTO dim_regions (region_name) VALUES (?)", (reg,))
-        
-    products = df_trans["Product Line"].dropna().unique()
-    for prod in products:
-        cursor.execute("INSERT OR IGNORE INTO dim_products (product_name) VALUES (?)", (prod,))
-        
-    categories = df_trans["Expense Category"].dropna().unique()
-    for cat in categories:
-        cursor.execute("INSERT OR IGNORE INTO dim_expense_categories (category_name) VALUES (?)", (cat,))
-        
-    conn.commit()
+    # Create Dimensions
+    depts = sorted(list(set(df_trans["Department"].dropna().unique()).union(set(df_budget["Department"].dropna().unique()))))
+    df_depts = pd.DataFrame({
+        "dept_id": range(1, len(depts) + 1),
+        "dept_name": depts
+    })
+    dept_lookup = {name: i for i, name in zip(df_depts["dept_id"], df_depts["dept_name"])}
     
-    # Fetch lookups
-    cursor.execute("SELECT dept_id, dept_name FROM dim_departments")
-    dept_lookup = {name: id for id, name in cursor.fetchall()}
+    regions = sorted(list(set(df_trans["Region"].dropna().unique()).union(set(df_budget["Region"].dropna().unique()))))
+    df_regions = pd.DataFrame({
+        "region_id": range(1, len(regions) + 1),
+        "region_name": regions
+    })
+    region_lookup = {name: i for i, name in zip(df_regions["region_id"], df_regions["region_name"])}
     
-    cursor.execute("SELECT region_id, region_name FROM dim_regions")
-    region_lookup = {name: id for id, name in cursor.fetchall()}
+    products = sorted(list(df_trans["Product Line"].dropna().unique()))
+    df_products = pd.DataFrame({
+        "product_id": range(1, len(products) + 1),
+        "product_name": products
+    })
+    product_lookup = {name: i for i, name in zip(df_products["product_id"], df_products["product_name"])}
     
-    cursor.execute("SELECT product_id, product_name FROM dim_products")
-    product_lookup = {name: id for id, name in cursor.fetchall()}
+    categories = sorted(list(df_trans["Expense Category"].dropna().unique()))
+    df_categories = pd.DataFrame({
+        "category_id": range(1, len(categories) + 1),
+        "category_name": categories
+    })
+    category_lookup = {name: i for i, name in zip(df_categories["category_id"], df_categories["category_name"])}
     
-    cursor.execute("SELECT category_id, category_name FROM dim_expense_categories")
-    category_lookup = {name: id for id, name in cursor.fetchall()}
-    
-    # Insert budgets
+    # Map budgets
     budget_records = []
-    for _, row in df_budget.iterrows():
+    for idx, row in df_budget.iterrows():
         dept_id = dept_lookup.get(row["Department"])
         region_id = region_lookup.get(row["Region"])
-        budget_records.append((
-            row["Month"],
-            dept_id,
-            region_id,
-            float(row["Budgeted Revenue"]),
-            float(row["Budgeted Expenses"])
-        ))
-        
-    cursor.executemany("""
-    INSERT INTO fact_budgets (month, dept_id, region_id, budgeted_revenue, budgeted_expenses)
-    VALUES (?, ?, ?, ?, ?)
-    """, budget_records)
-    
-    # Insert transactions with Client ID auto-generation safeguard
-    trans_records = []
-    has_client_col = "Client ID" in df_trans.columns
+        budget_records.append({
+            "budget_id": idx + 1,
+            "month": row["Month"],
+            "dept_id": dept_id,
+            "region_id": region_id,
+            "budgeted_revenue": float(row["Budgeted Revenue"]),
+            "budgeted_expenses": float(row["Budgeted Expenses"])
+        })
+    df_budgets_sheet = pd.DataFrame(budget_records)
     
     # Deterministic client cohort profiles for auto-generation
     import random
@@ -185,8 +74,12 @@ def init_database(db_path, trans_csv, budget_csv, invoice_csv=None):
         elif r < 0.97: cohort_m = 11
         else: cohort_m = 12
         client_cohorts[client] = cohort_m
-
-    for _, row in df_trans.iterrows():
+        
+    # Map transactions
+    trans_records = []
+    has_client_col = "Client ID" in df_trans.columns
+    
+    for idx, row in df_trans.iterrows():
         dept_id = dept_lookup.get(row["Department"])
         region_id = region_lookup.get(row["Region"])
         product_id = product_lookup.get(row["Product Line"])
@@ -202,7 +95,6 @@ def init_database(db_path, trans_csv, budget_csv, invoice_csv=None):
             month_val = int(dt_str.split("-")[1])
             available_clients = [c for c, m in client_cohorts.items() if m <= month_val]
             if available_clients:
-                # Use a pseudo-random choice seeded by date and revenue to keep it stable
                 seed_val = int(dt_str.replace("-", "")) + int(rev_val * 100)
                 state = random.getstate()
                 random.seed(seed_val)
@@ -213,23 +105,20 @@ def init_database(db_path, trans_csv, budget_csv, invoice_csv=None):
         else:
             client_val = ""
             
-        trans_records.append((
-            row["Date"],
-            rev_val,
-            float(row["Expenses"]) if pd.notna(row["Expenses"]) else 0.0,
-            dept_id,
-            region_id,
-            product_id,
-            category_id,
-            client_val
-        ))
-        
-    cursor.executemany("""
-    INSERT INTO fact_transactions (date, revenue, expenses, dept_id, region_id, product_id, category_id, client_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, trans_records)
+        trans_records.append({
+            "transaction_id": idx + 1,
+            "date": row["Date"],
+            "revenue": rev_val,
+            "expenses": float(row["Expenses"]) if pd.notna(row["Expenses"]) else 0.0,
+            "dept_id": dept_id,
+            "region_id": region_id,
+            "product_id": product_id,
+            "category_id": category_id,
+            "client_id": client_val
+        })
+    df_trans_sheet = pd.DataFrame(trans_records)
     
-    # Insert invoices with auto-generation fallback safeguard
+    # Map invoices
     if invoice_csv is None:
         dir_name = os.path.dirname(trans_csv)
         invoice_csv = os.path.join(dir_name, "financial_invoices_raw.csv")
@@ -238,78 +127,92 @@ def init_database(db_path, trans_csv, budget_csv, invoice_csv=None):
         print(f"Seeding invoices from: {invoice_csv}")
         df_inv = pd.read_csv(invoice_csv)
         inv_records = []
-        for _, row in df_inv.iterrows():
-            inv_records.append((
-                row["Invoice ID"],
-                row["Client ID"],
-                row["Issue Date"],
-                float(row["Amount"]) if pd.notna(row["Amount"]) else 0.0,
-                row["Status"]
-            ))
-        cursor.executemany("""
-        INSERT OR IGNORE INTO fact_invoices (invoice_id, client_id, issue_date, amount, status)
-        VALUES (?, ?, ?, ?, ?)
-        """, inv_records)
-        print(f"Seeded {len(df_inv)} invoices.")
+        for idx, row in df_inv.iterrows():
+            status = row["Status"]
+            if status == "1-Created": status_num = 1
+            elif status == "2-Delivered": status_num = 2
+            elif status == "3-Approved": status_num = 3
+            elif status == "4-Pending Payment": status_num = 4
+            elif status == "5-Settled": status_num = 5
+            else: status_num = 1
+            
+            inv_records.append({
+                "invoice_id": row["Invoice ID"],
+                "client_id": row["Client ID"],
+                "issue_date": row["Issue Date"],
+                "amount": float(row["Amount"]) if pd.notna(row["Amount"]) else 0.0,
+                "status": status,
+                "status_num": status_num
+            })
+        df_invoices_sheet = pd.DataFrame(inv_records)
     else:
-        print("Warning: Invoices CSV not found. Auto-generating invoices from transaction facts...")
-        cursor.execute("SELECT date, revenue, client_id FROM fact_transactions WHERE revenue > 0")
-        rows = cursor.fetchall()
-        
+        print("Warning: Invoices CSV not found. Auto-generating invoice sheet...")
+        inv_records = []
         state = random.getstate()
         random.seed(100)
-        inv_records = []
-        for idx, row in enumerate(rows):
-            dt_str, amount, client_id = row
-            inv_id = f"INV-{10000 + idx}"
+        idx_count = 0
+        for _, row in df_trans_sheet[df_trans_sheet["revenue"] > 0].iterrows():
+            dt_str = row["date"]
+            amount = row["revenue"]
+            client_id = row["client_id"]
+            inv_id = f"INV-{10000 + idx_count}"
+            idx_count += 1
+            
             month_val = int(dt_str.split("-")[1])
             r = random.random()
             if month_val < 11:
-                if r < 0.92: status = "5-Settled"
-                elif r < 0.97: status = "4-Pending Payment"
-                elif r < 0.99: status = "3-Approved"
-                else: status = "2-Delivered"
+                if r < 0.92: status = "5-Settled"; status_num = 5
+                elif r < 0.97: status = "4-Pending Payment"; status_num = 4
+                elif r < 0.99: status = "3-Approved"; status_num = 3
+                else: status = "2-Delivered"; status_num = 2
             else:
-                if r < 0.40: status = "5-Settled"
-                elif r < 0.70: status = "4-Pending Payment"
-                elif r < 0.85: status = "3-Approved"
-                elif r < 0.95: status = "2-Delivered"
-                else: status = "1-Created"
-            inv_records.append((inv_id, client_id, dt_str, amount, status))
+                if r < 0.40: status = "5-Settled"; status_num = 5
+                elif r < 0.70: status = "4-Pending Payment"; status_num = 4
+                elif r < 0.85: status = "3-Approved"; status_num = 3
+                elif r < 0.95: status = "2-Delivered"; status_num = 2
+                else: status = "1-Created"; status_num = 1
+                
+            inv_records.append({
+                "invoice_id": inv_id,
+                "client_id": client_id,
+                "issue_date": dt_str,
+                "amount": amount,
+                "status": status,
+                "status_num": status_num
+            })
         random.setstate(state)
+        df_invoices_sheet = pd.DataFrame(inv_records)
         
-        cursor.executemany("""
-        INSERT OR IGNORE INTO fact_invoices (invoice_id, client_id, issue_date, amount, status)
-        VALUES (?, ?, ?, ?, ?)
-        """, inv_records)
-        print(f"Auto-generated and seeded {len(inv_records)} invoices.")
+    # Create ingestion log sheet
+    df_ingestion_log_sheet = pd.DataFrame([{
+        "batch_id": 1,
+        "submitted_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "filename": os.path.basename(trans_csv),
+        "row_count": len(df_trans),
+        "status": "Accepted",
+        "health_score": 100.0,
+        "issues_json": "[]",
+        "accepted_rows": len(df_trans),
+        "rejected_rows": 0
+    }])
     
-    conn.commit()
-    
-    # Log initial seed batch
-    cursor.execute("""
-    INSERT INTO ingestion_log (submitted_at, filename, row_count, status, health_score, issues_json, accepted_rows, rejected_rows)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        os.path.basename(trans_csv),
-        len(df_trans),
-        "Accepted",
-        1.0,
-        "[]",
-        len(df_trans),
-        0
-    ))
-    
-    conn.commit()
-    print(f"Seeded {len(df_trans)} transactions and {len(df_budget)} monthly budget rows.")
-    conn.close()
- 
+    # Save sheets to output path
+    with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        df_trans_sheet.to_excel(writer, sheet_name="fact_transactions", index=False)
+        df_budgets_sheet.to_excel(writer, sheet_name="fact_budgets", index=False)
+        df_invoices_sheet.to_excel(writer, sheet_name="fact_invoices", index=False)
+        df_depts.to_excel(writer, sheet_name="dim_departments", index=False)
+        df_regions.to_excel(writer, sheet_name="dim_regions", index=False)
+        df_products.to_excel(writer, sheet_name="dim_products", index=False)
+        df_categories.to_excel(writer, sheet_name="dim_expense_categories", index=False)
+        df_ingestion_log_sheet.to_excel(writer, sheet_name="ingestion_log", index=False)
+        
+    print(f"Excel Database created at {output_path} containing {len(df_trans_sheet)} transactions.")
+
 if __name__ == "__main__":
-    db_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "financial.db")
+    out_file = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "financial_analysis.xlsx")
     trans_csv = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "financial_data_raw.csv")
     budget_csv = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "financial_budget_raw.csv")
     invoice_csv = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "financial_invoices_raw.csv")
     
-    os.makedirs(os.path.dirname(db_file), exist_ok=True)
-    init_database(db_file, trans_csv, budget_csv, invoice_csv)
+    init_excel_database(out_file, trans_csv, budget_csv, invoice_csv)

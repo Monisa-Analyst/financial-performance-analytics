@@ -2,7 +2,6 @@ import os
 import sys
 import unittest
 import pandas as pd
-import sqlite3
 
 # Add src to path
 sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)), "src"))
@@ -13,9 +12,8 @@ import excel_generator
 
 class TestFinancialPipeline(unittest.TestCase):
     def setUp(self):
-        self.db_path = "src/financial.db"
-        self.test_csv = "financial_upload_test.csv"
         self.excel_file = "financial_analysis.xlsx"
+        self.test_csv = "financial_upload_test.csv"
         
         # Create test CSV file if it doesn't exist
         df_test = pd.DataFrame([
@@ -27,27 +25,25 @@ class TestFinancialPipeline(unittest.TestCase):
         ])
         df_test.to_csv(self.test_csv, index=False)
         
-    def test_database_exists(self):
-        self.assertTrue(os.path.exists(self.db_path), "SQLite database file should exist.")
+    def test_excel_database_exists(self):
+        self.assertTrue(os.path.exists(self.excel_file), "Excel database file should exist.")
         
     def test_kpi_queries(self):
-        kpis = analytics.get_kpis(self.db_path)
+        kpis = analytics.get_kpis(self.excel_file)
         self.assertIn("total_revenue", kpis)
         self.assertIn("net_profit", kpis)
         self.assertIn("roi", kpis)
         self.assertGreater(kpis["total_revenue"], 0, "Revenue should be positive.")
         
     def test_excel_generation(self):
-        # Remove if exists and generate
-        if os.path.exists(self.excel_file):
-            os.remove(self.excel_file)
-        excel_generator.create_styled_excel(self.db_path, self.excel_file)
-        self.assertTrue(os.path.exists(self.excel_file), "Excel workbook should be created successfully.")
+        # Generate reports sheets
+        excel_generator.create_styled_excel(self.excel_file)
+        self.assertTrue(os.path.exists(self.excel_file), "Excel workbook should remain created successfully.")
         
     def test_dirty_ingestion_anomalies(self):
-        result = ingestion.process_file_upload(self.test_csv, "financial_upload_test.csv", self.db_path)
+        result = ingestion.process_file_upload(self.test_csv, "financial_upload_test.csv", self.excel_file)
         self.assertFalse(result["success"], "Highly anomalous batch should fail merge.")
-        self.assertEqual(result["status"], "Rejected", "Status should be Rejected due to 4/5 anomalous rows.")
+        self.assertEqual(result["status"], "Rejected", "Status should be Rejected due to anomalous rows.")
         self.assertIn("missing_date", result["issues"], "Should catch missing date.")
         self.assertIn("future_dates", result["issues"], "Should catch future date.")
         self.assertIn("negative_expenses", result["issues"], "Should catch negative expense value.")

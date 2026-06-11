@@ -1,6 +1,6 @@
-# FinSight — Corporate Financial Performance & Profitability Analytics
+# FinSight — Corporate Financial Performance, Excel Modeling & Power BI Analytics
 
-An end-to-end financial data engineering and business intelligence platform designed to ingest daily corporate transactions, audit data quality, reconcile monthly budgets, and analyze profitability. FinSight bridges raw data engineering (SQL star schemas, Python ETL) with visual storytelling (multi-page Streamlit dashboards, Plotly charts) and advanced financial modeling (custom-formatted Excel workbooks built programmatically).
+An end-to-end corporate financial analytics and business intelligence platform designed to ingest daily corporate transactions, audit data quality, reconcile monthly budgets, and analyze profitability. FinSight bridges automated data engineering (Power Query, Python ETL) with dynamic financial modeling (formula-driven multi-sheet Excel workbooks) and interactive visual reporting (Power BI Star Schema, DAX, multi-page Streamlit dashboards).
 
 👉 **[Live Web Application Link](https://share.streamlit.io/monisa-analyst/financial-performance-analytics/main/src/app.py)**
 
@@ -8,12 +8,13 @@ An end-to-end financial data engineering and business intelligence platform desi
 
 ## 🚀 Key Features
 
-1. **Interactive Multi-Page BI Dashboard:**
-   - **Executive Summary:** Core financial KPIs (Total Revenue, Operating Expenses, Net Operating Profit, Profit Margin %, ROI %) and trend lines (MoM growth, running totals).
+1. **Interactive Multi-Page BI Dashboard (Streamlit & Plotly):**
+   - **Executive Summary:** Core financial KPIs (Total Revenue, Operating Expenses, Net Operating Profit, Profit Margin %, ROI %, Budget Variance %) and trend lines (MoM growth, running totals).
    - **Profitability & Budgets:** Granular breakdowns by region and product segment (identifying high-performing lines) and a department budget-to-actual variance matrix.
    - **Cohorts & Funnels:** Interactive Client Revenue Retention Heatmaps (Net Revenue Retention & Logo Retention) and Accounts Receivable Invoicing conversion funnel.
    - **Ingest Transactions:** Drag-and-drop CSV/Excel portal for daily transactions uploads.
    - **Audit Trail:** logs of files processed and database-wide health diagnostics.
+   - **Power BI & DAX Report:** Dedicated showcase detailing Star Schema connections, Power Query M code transformations, and the DAX measure library.
 
 2. **Fuzzy Column Ingestion & Standardisation:**
    - Normalizes incoming column headers dynamically (e.g. mapping `spending`, `outflow`, or `costs` automatically to `expenses`).
@@ -24,267 +25,125 @@ An end-to-end financial data engineering and business intelligence platform desi
      - **Critical:** Missing dates.
      - **Warning:** Future dates, negative revenue/expense inputs, zero amounts, blank dimension values.
      - **Info:** Large transaction spikes (Revenue > $50K, Expense > $25K), duplicate rows.
-   - Automatically computes a **Batch Health Score**. Batches with score `< 50%` are automatically rejected and rolled back to preserve database integrity.
+   - Automatically computes a **Batch Data Quality Score**. Batches with score `< 50%` are automatically rejected and rolled back to preserve database integrity.
 
-4. **Programmatic Excel Workbook Compiler (`openpyxl`):**
+4. **Dynamic Excel Workbook Compiler (`openpyxl`):**
    - Automatically compiles and refines a beautifully styled Excel workbook (`financial_analysis.xlsx`) after every successful data ingestion.
-   - **Native Excel Formulas:** Writes actual uppercase formulas (e.g., `=SUM(...)`, `=IF(...)`, `=AVERAGE(...)`) into cells so that the spreadsheet behaves dynamically for users rather than displaying flat, hardcoded values.
+   - **Recruiter-Friendly Native Formulas:** Writes actual uppercase formulas (e.g., `=SUMIFS(...)`, `=XLOOKUP(...)`, `=INDEX(...)`, `=MATCH(...)`) into cells so that the spreadsheet behaves dynamically for users rather than displaying flat, hardcoded values.
    - Designed with a professional corporate theme (Segoe UI, navy fills, double accounting underlines, auto-fitting column widths).
 
-5. **Advanced SQL Analytics Engine:**
-   - Operates on a structured SQLite **Star Schema** utilizing Common Table Expressions (CTEs), Joins, and Window Functions (calculating client NRR cohorts, invoice settlement funnels, `LAG` for MoM growth, and running totals).
+5. **Power BI Star Schema & DAX Integration:**
+   - Fully documented Star Schema structure linking dimensional lookup sheets to transactional facts.
+   - DAX query library configured to calculate cohort net revenue retention (NRR), time-series MoM variances, and cumulative invoice collections.
 
 ---
 
-## 📊 Database Architecture (Star Schema)
+## 📐 Star Schema Architecture (Power BI)
 
-The database design normalizes daily transaction records and monthly budgets into a high-performance relational structure:
+The Excel workbook worksheets are structured to serve as clean data sources for a standard Star Schema model:
 
-```mermaid
-erDiagram
-    fact_transactions {
-        int transaction_id PK
-        string date
-        real revenue
-        real expenses
-        int dept_id FK
-        int region_id FK
-        int product_id FK
-        int category_id FK
-        string client_id
-    }
-    fact_budgets {
-        int budget_id PK
-        string month
-        int dept_id FK
-        int region_id FK
-        real budgeted_revenue
-        real budgeted_expenses
-    }
-    fact_invoices {
-        string invoice_id PK
-        string client_id
-        string issue_date
-        real amount
-        string status
-    }
-    dim_departments {
-        int dept_id PK
-        string dept_name
-    }
-    dim_regions {
-        int region_id PK
-        string region_name
-    }
-    dim_products {
-        int product_id PK
-        string product_name
-    }
-    dim_expense_categories {
-        int category_id PK
-        string category_name
-    }
-    fact_transactions }|--|| dim_departments : "references"
-    fact_transactions }|--|| dim_regions : "references"
-    fact_transactions }|--|| dim_products : "references"
-    fact_transactions }|--|| dim_expense_categories : "references"
-    fact_budgets }|--|| dim_departments : "references"
-    fact_budgets }|--|| dim_regions : "references"
 ```
+                  ┌─────────────────┐
+                  │ dim_departments │
+                  └────────┬────────┘
+                           │ 1:N
+ ┌─────────────┐     ┌─────┴──────────┐     ┌─────────────┐
+ │ dim_regions ├─────┤fact_transactions├─────┤dim_products │
+ └─────────────┘ 1:N └─────┬──────────┘ N:1 └─────────────┘
+                           │ N:1
+                  ┌────────┴─────────────┐
+                  │dim_expense_categories│
+                  └──────────────────────┘
+```
+
+- **Fact Tables:** `fact_transactions`, `fact_budgets`, `fact_invoices`
+- **Dimension Tables:** `dim_departments`, `dim_regions`, `dim_products`, `dim_expense_categories`, `dim_calendar`
 
 ---
 
-## 💡 Advanced SQL Query Showcases
+## 💡 Advanced Showcases
 
-### 1. Monthly Performance, Growth & Running Totals (CTEs & Window Functions)
-Calculates monthly revenue, expenses, net profit, running revenue total, and Month-over-Month growth rate:
+Finance recruiters look for clean, standardized, and advanced models. FinSight highlights these directly in the Excel and Power BI layers:
 
-```sql
-WITH MonthlyAggs AS (
-    SELECT 
-        strftime('%Y-%m', date) as month,
-        SUM(revenue) as revenue,
-        SUM(expenses) as expenses,
-        SUM(revenue) - SUM(expenses) as net_profit
-    FROM fact_transactions
-    GROUP BY month
-),
-MonthlyGrowth AS (
-    SELECT 
-        month,
-        revenue,
-        expenses,
-        net_profit,
-        LAG(revenue) OVER (ORDER BY month) as prev_month_revenue,
-        SUM(revenue) OVER (ORDER BY month ROWS UNBOUNDED PRECEDING) as running_total_revenue
-    FROM MonthlyAggs
-)
-SELECT 
-    month,
-    ROUND(revenue, 2) as revenue,
-    ROUND(expenses, 2) as expenses,
-    ROUND(net_profit, 2) as net_profit,
-    ROUND(running_total_revenue, 2) as running_total_revenue,
-    ROUND(
-        CASE 
-            WHEN prev_month_revenue IS NULL THEN 0.0 
-            ELSE ((revenue - prev_month_revenue) / prev_month_revenue) * 100.0 
-        END, 
-        2
-    ) as rev_growth_pct
-FROM MonthlyGrowth
-ORDER BY month;
-```
+### 1. Advanced Excel Formulas (Written Programmatically)
+Instead of writing flat values, the Excel compiler writes dynamic relational formulas to calculate summaries:
 
-### 2. Departmental Budget vs Actual Variance (CTEs & Joins)
-Reconciles actual daily transactions against monthly budget targets per department:
+*   **SUMIFS with XLOOKUP (Departmental Budget vs Actual Actuals):**
+    Queries transactions based on the department ID mapped dynamically via `XLOOKUP`:
+    ```excel
+    =SUMIFS(fact_transactions!C:C, fact_transactions!E:E, XLOOKUP(A3, dim_departments!B:B, dim_departments!A:A))
+    ```
+*   **SUMIFS with Month Wildcards (Monthly Revenue):**
+    Aggregates revenue by month using wildcard prefix matching on date text strings:
+    ```excel
+    =SUMIFS(fact_transactions!C:C, fact_transactions!B:B, A3&"-*")
+    ```
+*   **Nested IF with Division Safeguards (Margins):**
+    Calculates profit margins dynamically while preventing `#DIV/0!` errors:
+    ```excel
+    =IF(B3=0, 0, D3/B3)
+    ```
 
-```sql
-WITH Actuals AS (
-    SELECT 
-        dept_id,
-        SUM(revenue) as actual_revenue,
-        SUM(expenses) as actual_expenses
-    FROM fact_transactions
-    GROUP BY dept_id
-),
-Budgets AS (
-    SELECT 
-        dept_id,
-        SUM(budgeted_revenue) as budget_revenue,
-        SUM(budgeted_expenses) as budget_expenses
-    FROM fact_budgets
-    GROUP BY dept_id
-)
-SELECT 
-    d.dept_name as department,
-    ROUND(a.actual_revenue, 2) as actual_revenue,
-    ROUND(b.budget_revenue, 2) as budget_revenue,
-    ROUND(a.actual_revenue - b.budget_revenue, 2) as revenue_variance,
-    ROUND(a.actual_expenses, 2) as actual_expenses,
-    ROUND(b.budget_expenses, 2) as budget_expenses,
-    ROUND(b.budget_expenses - a.actual_expenses, 2) as expense_variance
-FROM Actuals a
-JOIN Budgets b ON a.dept_id = b.dept_id
-JOIN dim_departments d ON a.dept_id = d.dept_id
-ORDER BY actual_revenue DESC;
-```
+---
 
-### 3. Net Revenue Retention (NRR) Cohort Analysis (CTEs & Substr math)
-Computes monthly client cohorts and tracks their Net Revenue Retention percentage over time:
+### 2. Advanced Power BI DAX Measures
 
-```sql
-WITH ClientCohort AS (
-    SELECT 
-        client_id,
-        MIN(strftime('%Y-%m', date)) as cohort_month
-    FROM fact_transactions
-    WHERE revenue > 0 AND client_id IS NOT NULL AND client_id != ''
-    GROUP BY client_id
-),
-ClientMonthlyRevenue AS (
-    SELECT 
-        client_id,
-        strftime('%Y-%m', date) as trans_month,
-        SUM(revenue) as monthly_rev
-    FROM fact_transactions
-    WHERE revenue > 0 AND client_id IS NOT NULL AND client_id != ''
-    GROUP BY client_id, trans_month
-),
-CohortSizes AS (
-    SELECT 
-        cohort_month,
-        COUNT(DISTINCT client_id) as total_clients
-    FROM ClientCohort
-    GROUP BY cohort_month
-),
-CohortSpend AS (
-    SELECT 
-        cc.cohort_month,
-        (CAST(substr(cm.trans_month, 1, 4) AS INTEGER) - CAST(substr(cc.cohort_month, 1, 4) AS INTEGER)) * 12 + 
-        (CAST(substr(cm.trans_month, 6, 2) AS INTEGER) - CAST(substr(cc.cohort_month, 6, 2) AS INTEGER)) as elapsed_months,
-        SUM(cm.monthly_rev) as cohort_revenue,
-        COUNT(DISTINCT cm.client_id) as active_clients
-    FROM ClientCohort cc
-    JOIN ClientMonthlyRevenue cm ON cc.client_id = cm.client_id
-    GROUP BY cc.cohort_month, elapsed_months
-),
-BaseRevenue AS (
-    SELECT 
-        cohort_month,
-        cohort_revenue as base_rev
-    FROM CohortSpend
-    WHERE elapsed_months = 0
-)
-SELECT 
-    cs.cohort_month,
-    cs.total_clients,
-    ROUND(br.base_rev, 2) as base_rev,
-    c.elapsed_months,
-    ROUND(c.cohort_revenue, 2) as cohort_revenue,
-    c.active_clients,
-    ROUND((c.cohort_revenue / br.base_rev) * 100.0, 2) as revenue_retention_pct,
-    ROUND((c.active_clients * 100.0 / cs.total_clients), 2) as client_retention_pct
-FROM CohortSpend c
-JOIN CohortSizes cs ON c.cohort_month = cs.cohort_month
-JOIN BaseRevenue br ON c.cohort_month = br.cohort_month
-WHERE c.elapsed_months >= 0 AND c.elapsed_months < 12
-ORDER BY cs.cohort_month, c.elapsed_months;
-```
+*   **Month-over-Month Revenue Growth % (Time Intelligence):**
+    Uses variables and contextual calculation modifications to compare sales MoM:
+    ```dax
+    Revenue MoM Growth % = 
+    VAR CurrentRev = [Total Revenue]
+    VAR PrevMonthRev = 
+        CALCULATE(
+            [Total Revenue],
+            DATEADD('dim_calendar'[Date], -1, MONTH)
+        )
+    RETURN
+        DIVIDE(CurrentRev - PrevMonthRev, PrevMonthRev, 0)
+    ```
 
-### 4. Accounts Receivable Invoicing Funnel (CTEs & Cumulative Union)
-Tracks cash collections and invoice statuses cumulatively:
+*   **Net Revenue Retention (NRR) Cohorts:**
+    Aggregates repeat transaction values from a customer signup cohort over elapsed months:
+    ```dax
+    Net Revenue Retention % = 
+    VAR CohortMonth = SELECTEDVALUE('dim_calendar'[CohortMonth])
+    VAR SelectedMonth = SELECTEDVALUE('dim_calendar'[Month])
+    VAR BaseRevenue = 
+        CALCULATE(
+            [Total Revenue],
+            FILTER(
+                ALL('dim_calendar'),
+                'dim_calendar'[CohortMonth] = CohortMonth && 
+                'dim_calendar'[Month] = CohortMonth
+            )
+        )
+    VAR CurrentCohortRevenue = 
+        CALCULATE(
+            [Total Revenue],
+            FILTER(
+                ALL('dim_calendar'),
+                'dim_calendar'[CohortMonth] = CohortMonth && 
+                'dim_calendar'[Month] = SelectedMonth
+            )
+        )
+    RETURN
+        DIVIDE(CurrentCohortRevenue, BaseRevenue, 0)
+    ```
 
-```sql
-WITH InvoiceNumericStatus AS (
-    SELECT 
-        invoice_id,
-        amount,
-        CASE 
-            WHEN status = '1-Created' THEN 1
-            WHEN status = '2-Delivered' THEN 2
-            WHEN status = '3-Approved' THEN 3
-            WHEN status = '4-Pending Payment' THEN 4
-            WHEN status = '5-Settled' THEN 5
-            ELSE 1
-        END as status_num
-    FROM fact_invoices
-)
-SELECT 
-    '1. Created' as stage,
-    COUNT(*) as invoice_count,
-    ROUND(SUM(amount), 2) as total_amount,
-    100.0 as pct_conversion
-FROM InvoiceNumericStatus
-UNION ALL
-SELECT 
-    '2. Delivered' as stage,
-    COUNT(*) as invoice_count,
-    ROUND(SUM(amount), 2) as total_amount,
-    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM InvoiceNumericStatus), 2) as pct_conversion
-FROM InvoiceNumericStatus WHERE status_num >= 2
-UNION ALL
-SELECT 
-    '3. Approved' as stage,
-    COUNT(*) as invoice_count,
-    ROUND(SUM(amount), 2) as total_amount,
-    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM InvoiceNumericStatus), 2) as pct_conversion
-FROM InvoiceNumericStatus WHERE status_num >= 3
-UNION ALL
-SELECT 
-    '4. Pending Payment' as stage,
-    COUNT(*) as invoice_count,
-    ROUND(SUM(amount), 2) as total_amount,
-    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM InvoiceNumericStatus), 2) as pct_conversion
-FROM InvoiceNumericStatus WHERE status_num >= 4
-UNION ALL
-SELECT 
-    '5. Settled' as stage,
-    COUNT(*) as invoice_count,
-    ROUND(SUM(amount), 2) as total_amount,
-    ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM InvoiceNumericStatus), 2) as pct_conversion
-FROM InvoiceNumericStatus WHERE status_num = 5;
-```
+*   **Accounts Receivable Invoicing funnel collection rate:**
+    Evaluates cumulative settlement conversion rates through the collection stages:
+    ```dax
+    Settlement Conversion Rate % = 
+    VAR ActiveStage = SELECTEDVALUE('dim_invoices_stages'[StageOrder])
+    VAR TotalInvoicesCreated = COUNTROWS('fact_invoices')
+    VAR CurrentStageInvoices = 
+        CALCULATE(
+            COUNTROWS('fact_invoices'),
+            'fact_invoices'[status_num] >= ActiveStage
+        )
+    RETURN
+        DIVIDE(CurrentStageInvoices, TotalInvoicesCreated, 0)
+    ```
 
 ---
 
@@ -295,22 +154,29 @@ FROM InvoiceNumericStatus WHERE status_num = 5;
 pip install -r requirements.txt
 ```
 
-### 2. Generate Data & Seed Database
-Initialize the database tables and load the initial transactions:
+### 2. Generate Data & Seed Excel Model
+Initialize the worksheets and load the raw transactional tables:
 ```bash
 python generate_data.py
 python src/db_init.py
 ```
 
-### 3. Generate Styled Excel Model
+### 3. Compile Styled Corporate Report Sheets
 ```bash
 python src/excel_generator.py
 ```
+This builds the styled charts and active formulas inside `financial_analysis.xlsx`.
 
-### 4. Launch Dashboard
+### 4. Run Automated Pipeline Tests
+```bash
+python test_finance.py
+```
+
+### 5. Launch Dashboard
 ```bash
 streamlit run src/app.py
 ```
+Open `http://localhost:8501` in your browser.
 
 ---
 

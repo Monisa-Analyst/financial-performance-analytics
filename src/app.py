@@ -1,6 +1,5 @@
 import os
 import json
-import sqlite3
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -19,29 +18,41 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom database path solver for Streamlit Cloud
-def get_db_path():
+# Custom Excel database path solver for Streamlit Cloud
+def get_excel_path():
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    local_excel = os.path.join(root_dir, "financial_analysis.xlsx")
+    
+    # Check if running in Streamlit Cloud (read-only environment)
     if os.path.exists("/mount/src/"):
-        cloud_db = "/tmp/financial.db"
-        if not os.path.exists(cloud_db):
-            src_db = os.path.join(os.path.dirname(os.path.abspath(__file__)), "financial.db")
-            if os.path.exists(src_db):
+        cloud_excel = "/tmp/financial_analysis.xlsx"
+        if not os.path.exists(cloud_excel):
+            if os.path.exists(local_excel):
                 import shutil
                 try:
-                    shutil.copy(src_db, cloud_db)
+                    shutil.copy(local_excel, cloud_excel)
                 except Exception as e:
-                    st.error(f"Error copying DB to cloud temp: {e}")
+                    st.error(f"Error copying Excel database to cloud temp: {e}")
             else:
                 import db_init
-                raw_trans = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "financial_data_raw.csv")
-                raw_budget = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "financial_budget_raw.csv")
-                db_init.init_database(cloud_db, raw_trans, raw_budget)
-        return cloud_db
-    return os.path.join(os.path.dirname(os.path.abspath(__file__)), "financial.db")
+                raw_trans = os.path.join(root_dir, "financial_data_raw.csv")
+                raw_budget = os.path.join(root_dir, "financial_budget_raw.csv")
+                db_init.init_excel_database(cloud_excel, raw_trans, raw_budget)
+        return cloud_excel
+    return local_excel
 
-db_path = get_db_path()
+excel_path = get_excel_path()
 
-# Modern custom CSS styles
+# Ensure Excel reports sheets are compiled
+if not os.path.exists(excel_path) or len(pd.ExcelFile(excel_path).sheet_names) < 8:
+    import db_init
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    raw_trans = os.path.join(root_dir, "financial_data_raw.csv")
+    raw_budget = os.path.join(root_dir, "financial_budget_raw.csv")
+    db_init.init_excel_database(excel_path, raw_trans, raw_budget)
+    excel_generator.create_styled_excel(excel_path)
+
+# Modern custom CSS styles (Forest Green palette)
 st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap');
@@ -164,7 +175,8 @@ menu = st.sidebar.radio(
         "🎯 Profitability & Budgets",
         "📈 Cohorts & Funnels",
         "📥 Ingest Transactions",
-        "🔍 Audit Log & Data Quality"
+        "🔍 Audit Log & Data Quality",
+        "🔌 Power BI & DAX Report"
     ]
 )
 
@@ -185,9 +197,8 @@ if menu == "📊 Executive Summary":
     </div>
     """, unsafe_allow_html=True)
     
-    kpis = analytics.get_kpis(db_path)
+    kpis = analytics.get_kpis(excel_path)
     
-    # Display KPIs in custom cards
     col1, col2, col3, col4, col5 = st.columns(5)
     with col1:
         st.markdown(f"""
@@ -229,7 +240,7 @@ if menu == "📊 Executive Summary":
     
     # Row 1: Line Chart Monthly Trends & Revenue Running Total
     col_left, col_right = st.columns([2, 1])
-    df_monthly = analytics.get_monthly_performance(db_path)
+    df_monthly = analytics.get_monthly_performance(excel_path)
     
     with col_left:
         st.subheader("📈 Monthly Revenue vs Expense Trends")
@@ -268,7 +279,7 @@ if menu == "📊 Executive Summary":
     col_left2, col_right2 = st.columns([1, 1])
     
     with col_left2:
-        st.subheader("🔄 Month-over-Month Revenue Growth % (SQL Window Functions)")
+        st.subheader("🔄 Month-over-Month Revenue Growth %")
         fig_growth = px.bar(
             df_monthly,
             x="month",
@@ -289,7 +300,7 @@ if menu == "📊 Executive Summary":
         
     with col_right2:
         st.subheader("🏷️ Expenses by Category Share")
-        df_exp_share = analytics.get_expenses_by_category(db_path)
+        df_exp_share = analytics.get_expenses_by_category(excel_path)
         fig_exp_pie = px.pie(
             df_exp_share,
             values="expenses",
@@ -355,16 +366,14 @@ elif menu == "🎯 Profitability & Budgets":
     </div>
     """, unsafe_allow_html=True)
     
-    # Excel download block
     st.markdown("### 📥 Download Structured Excel Model")
     st.write("Download the fully formatted, corporate-styled Excel workbook containing summary sheets and native Excel formulas (KPI cards, margins, variances, and sum aggregates).")
     
-    excel_file = "financial_analysis.xlsx"
     # Ensure it's compiled
-    if not os.path.exists(excel_file):
-        excel_generator.create_styled_excel(db_path, excel_file)
+    if not os.path.exists(excel_path):
+        excel_generator.create_styled_excel(excel_path)
         
-    with open(excel_file, "rb") as f:
+    with open(excel_path, "rb") as f:
         st.download_button(
             label="📊 Download Excel Analytical Workbook (.xlsx)",
             data=f.read(),
@@ -374,11 +383,10 @@ elif menu == "🎯 Profitability & Budgets":
         
     st.markdown("---")
     
-    # Section 1: Budget vs Actual table
-    st.subheader("🎯 Departmental Budget vs Actual Variance Report (SQL Joins)")
+    st.subheader("🎯 Departmental Budget vs Actual Variance Report")
     st.write("This table shows the budget targets vs actual performance. Expenses variances are positive when actual costs are under budget (savings).")
     
-    df_bva = analytics.get_department_performance(db_path)
+    df_bva = analytics.get_department_performance(excel_path)
     df_bva_styled = df_bva.rename(columns={
         "department": "Department",
         "actual_revenue": "Actual Revenue ($)",
@@ -404,12 +412,12 @@ elif menu == "🎯 Profitability & Budgets":
     
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # Section 2: Regional and Product Profitability
+    # Regional and Product Profitability
     col_reg, col_prod = st.columns(2)
     
     with col_reg:
         st.subheader("🌍 Regional Margin Breakdown")
-        df_reg = analytics.get_regional_profitability(db_path)
+        df_reg = analytics.get_regional_profitability(excel_path)
         
         st.dataframe(
             df_reg.rename(columns={
@@ -448,7 +456,7 @@ elif menu == "🎯 Profitability & Budgets":
         
     with col_prod:
         st.subheader("📦 Product Line Contribution")
-        df_prod = analytics.get_product_profitability(db_path)
+        df_prod = analytics.get_product_profitability(excel_path)
         
         st.dataframe(
             df_prod.rename(columns={
@@ -498,7 +506,7 @@ elif menu == "📈 Cohorts & Funnels":
         st.subheader("🔄 Client Revenue Cohort Analysis (Net Revenue Retention)")
         st.write("Tracks customer contract value retention across monthly cohorts. Net Revenue Retention (NRR) measures the percentage of recurring revenue retained from existing clients over time.")
         
-        df_cohort = analytics.get_revenue_cohorts(db_path)
+        df_cohort = analytics.get_revenue_cohorts(excel_path)
         
         if not df_cohort.empty:
             # NRR Pivot
@@ -587,13 +595,13 @@ elif menu == "📈 Cohorts & Funnels":
                 </div>
                 """, unsafe_allow_html=True)
         else:
-            st.info("No cohort records found in the database. Please re-run the database seeder.")
+            st.info("No cohort records found. Please re-run the database seeder.")
             
     with tab_funnel:
         st.subheader("📊 Accounts Receivable Invoice Settlement Funnel")
         st.write("Visualizes the status pipeline of billing invoices issued to clients, measuring conversion and cash collection efficiency.")
         
-        df_funnel = analytics.get_invoice_funnel(db_path)
+        df_funnel = analytics.get_invoice_funnel(excel_path)
         
         if not df_funnel.empty:
             total_created = df_funnel[df_funnel['stage'] == '1. Created']['total_amount'].values[0]
@@ -698,18 +706,16 @@ elif menu == "📥 Ingest Transactions":
     4. **Automatic Excel Recompilation:** When a batch is accepted, the downloadable Excel workbook is automatically compiled with the new data.
     """)
     
-    # Generate test upload CSV download button
     st.info("💡 **Need a test upload file?** Generate a sample csv containing transactions with custom anomalies to verify the audit gate.")
     
     test_csv_path = "financial_upload_test.csv"
     if not os.path.exists(test_csv_path):
-        # Generate a small test dataframe
         df_test = pd.DataFrame([
             {"Date": "2025-06-15", "Revenue": "5400.00", "Expenses": "1200.00", "Department": "Sales", "Region": "South", "Product Line": "Software Licenses", "Expense Category": "Salaries"},
-            {"Date": "2025-06-16", "Revenue": "4500.00", "Expenses": "(-500.00)", "Department": "Marketing", "Region": "North", "Product Line": "Consulting Services", "Expense Category": "Marketing Ads"}, # warning negative expenses
-            {"Date": "2025-06-17", "Revenue": "", "Expenses": "", "Department": "Operations", "Region": "West", "Product Line": "Hardware Systems", "Expense Category": "Rent"}, # warning null amounts
-            {"Date": "2026-12-01", "Revenue": "12000.00", "Expenses": "4000.00", "Department": "Engineering", "Region": "East", "Product Line": "Cloud Subscriptions", "Expense Category": "Software Subscriptions"}, # warning future date
-            {"Date": "", "Revenue": "3400.00", "Expenses": "1500.00", "Department": "HR", "Region": "South", "Product Line": "Software Licenses", "Expense Category": "Benefits"} # critical missing date
+            {"Date": "2025-06-16", "Revenue": "4500.00", "Expenses": "(-500.00)", "Department": "Marketing", "Region": "North", "Product Line": "Consulting Services", "Expense Category": "Marketing Ads"},
+            {"Date": "2025-06-17", "Revenue": "", "Expenses": "", "Department": "Operations", "Region": "West", "Product Line": "Hardware Systems", "Expense Category": "Rent"},
+            {"Date": "2026-12-01", "Revenue": "12000.00", "Expenses": "4000.00", "Department": "Engineering", "Region": "East", "Product Line": "Cloud Subscriptions", "Expense Category": "Software Subscriptions"},
+            {"Date": "", "Revenue": "3400.00", "Expenses": "1500.00", "Department": "HR", "Region": "South", "Product Line": "Software Licenses", "Expense Category": "Benefits"}
         ])
         df_test.to_csv(test_csv_path, index=False)
         
@@ -733,7 +739,6 @@ elif menu == "📥 Ingest Transactions":
         with open(filepath, "wb") as f:
             f.write(uploaded_file.getbuffer())
             
-        # Display preview
         st.subheader("📄 Raw Upload Preview (First 5 Rows)")
         try:
             if filename.endswith(".csv"):
@@ -744,7 +749,6 @@ elif menu == "📥 Ingest Transactions":
         except Exception as e:
             st.error(f"Error reading file: {e}")
             
-        # Map Columns preview
         st.subheader("🔍 Auto-Column Mapping Inspector")
         mapped_df = ingestion.map_columns(preview_df)
         mapping_dict = {}
@@ -761,15 +765,13 @@ elif menu == "📥 Ingest Transactions":
                 
         st.json(mapping_dict)
         
-        # Action button
         if st.button("▶️ Process & Audit Ingestion", type="primary"):
-            with st.spinner("Executing pipeline: mapping -> cleaning -> auditing -> database merging -> Excel model recompilation..."):
-                result = ingestion.process_file_upload(filepath, filename, db_path)
+            with st.spinner("Executing pipeline: mapping -> cleaning -> auditing -> Excel model merging -> Excel re-compilation..."):
+                result = ingestion.process_file_upload(filepath, filename, excel_path)
                 
                 st.markdown("---")
                 st.subheader("📊 Ingestion Audit Report")
                 
-                # Verdict Badge
                 verdict = result["status"]
                 if verdict == "Accepted":
                     st.markdown("<h4>Verdict: <span class='badge-accepted'>✅ ACCEPTED</span></h4>", unsafe_allow_html=True)
@@ -797,13 +799,12 @@ elif menu == "📥 Ingest Transactions":
                 else:
                     st.success("Perfect Batch! 0 issues identified.")
                     
-        # Cleanup
         try:
             os.remove(filepath)
         except:
             pass
 
-# ----------------- PAGE 4: AUDIT LOG & DATA QUALITY -----------------
+# ----------------- PAGE 5: AUDIT LOG & DATA QUALITY -----------------
 elif menu == "🔍 Audit Log & Data Quality":
     st.markdown("""
     <div class="title-banner">
@@ -812,10 +813,8 @@ elif menu == "🔍 Audit Log & Data Quality":
     </div>
     """, unsafe_allow_html=True)
     
-    conn = sqlite3.connect(db_path)
-    
     st.subheader("📥 Historical Ingestion Log")
-    df_log = pd.read_sql_query("SELECT * FROM ingestion_log ORDER BY batch_id DESC", conn)
+    df_log = analytics.load_excel_sheet("ingestion_log", excel_path)
     
     if len(df_log) > 0:
         def color_status(val):
@@ -839,7 +838,7 @@ elif menu == "🔍 Audit Log & Data Quality":
         
         st.dataframe(
             df_log_styled.style.map(color_status, subset=["Verdict Status"])
-            .format({"Health Score": "{:.1%}"}),
+            .format({"Health Score": "{:.1f}%"}),
             use_container_width=True,
             hide_index=True
         )
@@ -849,30 +848,20 @@ elif menu == "🔍 Audit Log & Data Quality":
     st.markdown("---")
     
     st.subheader("⚙️ Live Database Quality Audits")
-    cursor = conn.cursor()
     
-    cursor.execute("SELECT COUNT(*) FROM dim_departments")
-    total_depts = cursor.fetchone()[0]
+    total_depts = len(analytics.load_excel_sheet("dim_departments", excel_path))
+    total_regions = len(analytics.load_excel_sheet("dim_regions", excel_path))
+    df_trans = analytics.load_excel_sheet("fact_transactions", excel_path)
+    total_trans = len(df_trans)
     
-    cursor.execute("SELECT COUNT(*) FROM dim_regions")
-    total_regions = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM fact_transactions")
-    total_trans = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM fact_transactions WHERE revenue < 0")
-    neg_rev_prod = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM fact_transactions WHERE expenses < 0")
-    neg_exp_prod = cursor.fetchone()[0]
-    
-    conn.close()
+    neg_rev_prod = len(df_trans[df_trans["revenue"] < 0])
+    neg_exp_prod = len(df_trans[df_trans["expenses"] < 0])
     
     col_a, col_b = st.columns(2)
     with col_a:
         st.markdown(f"""
         <div style="background-color: #111827; padding: 20px; border-radius: 12px; border: 1px solid rgba(16, 185, 129, 0.15); margin-bottom: 15px;">
-            <h4 style="margin-top:0; color:#34d399;">📋 Database Composition</h4>
+            <h4 style="margin-top:0; color:#34d399;">📋 Database Composition (Excel Sheets)</h4>
             <p><b>Total Departments in Dim:</b> {total_depts}</p>
             <p><b>Total Regions in Dim:</b> {total_regions}</p>
             <p><b>Total Transactions in Fact Table:</b> {total_trans}</p>
@@ -890,3 +879,128 @@ elif menu == "🔍 Audit Log & Data Quality":
             <p><b>Negative Expense Check:</b> {badge_exp}</p>
         </div>
         """, unsafe_allow_html=True)
+
+# ----------------- PAGE 6: POWER BI & DAX REPORT -----------------
+elif menu == "🔌 Power BI & DAX Report":
+    st.markdown("""
+    <div class="title-banner">
+        <h1>Power BI & DAX Analytical Report</h1>
+        <p>Star schema, Power Query transformations, and advanced DAX formulas library</p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    st.write("This tab outlines the Power BI architecture built around our Excel data model, explaining the design and formulas that recruiters look for.")
+    
+    tab_model, tab_query, tab_dax = st.tabs([
+        "📐 Star Schema Model",
+        "⚙️ Power Query (M Code) Transformation",
+        "📊 DAX Measure Library"
+    ])
+    
+    with tab_model:
+        st.subheader("📐 Model Structure")
+        st.write("FinSight leverages a standard clean **Star Schema** linking the fact tables to the dimensions to ensure clean filtering and optimal performance:")
+        st.markdown("""
+        *   **`fact_transactions` (Fact Table)**
+            *   Linked to `dim_calendar` on `Date` (Active, 1-to-Many)
+            *   Linked to `dim_departments` on `dept_id` (1-to-Many)
+            *   Linked to `dim_regions` on `region_id` (1-to-Many)
+            *   Linked to `dim_products` on `product_id` (1-to-Many)
+            *   Linked to `dim_expense_categories` on `category_id` (1-to-Many)
+        *   **`fact_budgets` (Fact Table)**
+            *   Linked to `dim_departments` on `dept_id` (1-to-Many)
+            *   Linked to `dim_regions` on `region_id` (1-to-Many)
+        *   **`fact_invoices` (Fact Table)**
+            *   Linked to `dim_calendar` on `issue_date` (1-to-Many)
+        """)
+        
+        st.info("💡 **Best Practice:** The dimension tables use sequential integer primary keys (`dept_id`, `region_id`, etc.) which reduces size overhead and improves index joining speed in Power BI.")
+
+    with tab_query:
+        st.subheader("⚙️ Power Query M Code transformation")
+        st.write("This script demonstrates how custom columns are dynamically mapped, standardize, and cleaned upon loading raw transactional data:")
+        st.code("""
+let
+    Source = Excel.Workbook(File.Contents("C:\\Users\\HP\\Desktop\\git\\financial-performance-analytics\\financial_analysis.xlsx"), null, true),
+    Transactions_Sheet = Source{[Item="fact_transactions",Kind="Sheet"]}[Data],
+    PromoteHeaders = Table.PromoteHeaders(Transactions_Sheet, [PromoteAllScalars=true]),
+    
+    // Auto-detect and map columns dynamically
+    RenameCols = Table.RenameColumns(PromoteHeaders, {
+        {"spending", "Expenses"}, {"costs", "Expenses"}, {"outflow", "Expenses"},
+        {"income", "Revenue"}, {"sales", "Revenue"}, {"earnings", "Revenue"}
+    }, MissingField.UseNull),
+    
+    // Standardize currency formats and strip symbols
+    CleanRevenue = Table.TransformColumns(RenameCols, {{"Revenue", each if _ is text then Value.FromText(Text.Select(_, {"0".."9", ".", "-"})) else _, type number}}),
+    CleanExpenses = Table.TransformColumns(CleanRevenue, {{"Expenses", each if _ is text then Value.FromText(Text.Select(_, {"0".."9", ".", "-"})) else _, type number}}),
+    
+    // Standardize Date formats
+    ParseDate = Table.TransformColumnTypes(CleanExpenses,{{"Date", type date}})
+in
+    ParseDate
+        """, language="powerquery")
+
+    with tab_dax:
+        st.subheader("📊 Advanced DAX Measure Library")
+        st.write("These calculations represent the core corporate metrics built in Power BI:")
+        
+        st.markdown("**1. Operating Performance Measures**")
+        st.code("""
+Total Revenue = SUM('fact_transactions'[revenue])
+
+Total Expenses = SUM('fact_transactions'[expenses])
+
+Net Profit = [Total Revenue] - [Total Expenses]
+
+Profit Margin % = DIVIDE([Net Profit], [Total Revenue], 0)
+        """, language="dax")
+        
+        st.markdown("**2. Budget Target Variances**")
+        st.code("""
+Budget Revenue = SUM('fact_budgets'[budgeted_revenue])
+
+Revenue Variance = [Total Revenue] - [Budget Revenue]
+
+Revenue Variance % = DIVIDE([Revenue Variance], [Budget Revenue], 0)
+        """, language="dax")
+        
+        st.markdown("**3. Time Intelligence (MoM Growth)**")
+        st.code("""
+Revenue MoM Growth % = 
+VAR CurrentRev = [Total Revenue]
+VAR PrevMonthRev = 
+    CALCULATE(
+        [Total Revenue],
+        DATEADD('dim_calendar'[Date], -1, MONTH)
+    )
+RETURN
+    DIVIDE(CurrentRev - PrevMonthRev, PrevMonthRev, 0)
+        """, language="dax")
+        
+        st.markdown("**4. Net Revenue Retention (NRR) Cohorts**")
+        st.code("""
+Net Revenue Retention % = 
+VAR CohortMonth = SELECTEDVALUE('dim_calendar'[CohortMonth])
+VAR SelectedMonth = SELECTEDVALUE('dim_calendar'[Month])
+VAR BaseRevenue = 
+    CALCULATE(
+        [Total Revenue],
+        FILTER(
+            ALL('dim_calendar'),
+            'dim_calendar'[CohortMonth] = CohortMonth && 
+            'dim_calendar'[Month] = CohortMonth
+        )
+    )
+VAR CurrentCohortRevenue = 
+    CALCULATE(
+        [Total Revenue],
+        FILTER(
+            ALL('dim_calendar'),
+            'dim_calendar'[CohortMonth] = CohortMonth && 
+            'dim_calendar'[Month] = SelectedMonth
+        )
+    )
+RETURN
+    DIVIDE(CurrentCohortRevenue, BaseRevenue, 0)
+        """, language="dax")

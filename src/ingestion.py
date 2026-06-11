@@ -1,6 +1,5 @@
 import os
 import json
-import sqlite3
 import pandas as pd
 import numpy as np
 from datetime import datetime
@@ -83,7 +82,7 @@ def parse_date(val):
         
     return None
 
-def run_data_quality_checks(df, db_path="src/financial.db"):
+def run_data_quality_checks(df, excel_path="financial_analysis.xlsx"):
     issues = {
         "missing_date": [],         # Critical
         "future_dates": [],         # Warning
@@ -110,10 +109,6 @@ def run_data_quality_checks(df, db_path="src/financial.db"):
         date_str = row["date"]
         rev = row["revenue"]
         exp = row["expenses"]
-        dept = row["department"]
-        reg = row["region"]
-        prod = row["product_line"]
-        cat = row["expense_category"]
         
         row_num = idx + 1
         row_has_crit_or_warn = False
@@ -172,85 +167,110 @@ def run_data_quality_checks(df, db_path="src/financial.db"):
     
     return issues, row_failed_health, health_score
 
-def merge_batch_to_db(df, db_path="src/financial.db"):
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    cursor.execute("PRAGMA foreign_keys = ON;")
-    
+def merge_batch_to_excel(df, excel_path="financial_analysis.xlsx"):
     try:
-        cursor.execute("BEGIN TRANSACTION;")
+        # Load all existing sheets from Excel
+        df_trans_old = pd.read_excel(excel_path, sheet_name="fact_transactions")
+        df_depts_old = pd.read_excel(excel_path, sheet_name="dim_departments")
+        df_regions_old = pd.read_excel(excel_path, sheet_name="dim_regions")
+        df_products_old = pd.read_excel(excel_path, sheet_name="dim_products")
+        df_cats_old = pd.read_excel(excel_path, sheet_name="dim_expense_categories")
+        df_budgets_old = pd.read_excel(excel_path, sheet_name="fact_budgets")
+        df_invoices_old = pd.read_excel(excel_path, sheet_name="fact_invoices")
+        df_log_old = pd.read_excel(excel_path, sheet_name="ingestion_log")
         
-        # Insert new dimensions if they don't exist
-        for dept in df["department"].dropna().unique():
-            cursor.execute("INSERT OR IGNORE INTO dim_departments (dept_name) VALUES (?)", (dept,))
-            
-        for reg in df["region"].dropna().unique():
-            cursor.execute("INSERT OR IGNORE INTO dim_regions (region_name) VALUES (?)", (reg,))
-            
-        for prod in df["product_line"].dropna().unique():
-            cursor.execute("INSERT OR IGNORE INTO dim_products (product_name) VALUES (?)", (prod,))
-            
-        for cat in df["expense_category"].dropna().unique():
-            cursor.execute("INSERT OR IGNORE INTO dim_expense_categories (category_name) VALUES (?)", (cat,))
-            
-        conn.commit()
+        # 1. Update dimensions if new values are found in the batch
+        depts_new = list(df["department"].dropna().unique())
+        dept_names_existing = list(df_depts_old["dept_name"].unique())
+        for d in depts_new:
+            if d not in dept_names_existing:
+                df_depts_old = pd.concat([df_depts_old, pd.DataFrame([{
+                    "dept_id": len(df_depts_old) + 1,
+                    "dept_name": d
+                }])], ignore_index=True)
+        dept_lookup = {name: i for i, name in zip(df_depts_old["dept_id"], df_depts_old["dept_name"])}
         
-        # Get lookups
-        cursor.execute("SELECT dept_id, dept_name FROM dim_departments")
-        dept_lookup = {name: id for id, name in cursor.fetchall()}
+        regions_new = list(df["region"].dropna().unique())
+        region_names_existing = list(df_regions_old["region_name"].unique())
+        for r in regions_new:
+            if r not in region_names_existing:
+                df_regions_old = pd.concat([df_regions_old, pd.DataFrame([{
+                    "region_id": len(df_regions_old) + 1,
+                    "region_name": r
+                }])], ignore_index=True)
+        region_lookup = {name: i for i, name in zip(df_regions_old["region_id"], df_regions_old["region_name"])}
         
-        cursor.execute("SELECT region_id, region_name FROM dim_regions")
-        region_lookup = {name: id for id, name in cursor.fetchall()}
+        products_new = list(df["product_line"].dropna().unique())
+        product_names_existing = list(df_products_old["product_name"].unique())
+        for p in products_new:
+            if p not in product_names_existing:
+                df_products_old = pd.concat([df_products_old, pd.DataFrame([{
+                    "product_id": len(df_products_old) + 1,
+                    "product_name": p
+                }])], ignore_index=True)
+        product_lookup = {name: i for i, name in zip(df_products_old["product_id"], df_products_old["product_name"])}
         
-        cursor.execute("SELECT product_id, product_name FROM dim_products")
-        product_lookup = {name: id for id, name in cursor.fetchall()}
+        cats_new = list(df["expense_category"].dropna().unique())
+        cat_names_existing = list(df_cats_old["category_name"].unique())
+        for c in cats_new:
+            if c not in cat_names_existing:
+                df_cats_old = pd.concat([df_cats_old, pd.DataFrame([{
+                    "category_id": len(df_cats_old) + 1,
+                    "category_name": c
+                }])], ignore_index=True)
+        category_lookup = {name: i for i, name in zip(df_cats_old["category_id"], df_cats_old["category_name"])}
         
-        cursor.execute("SELECT category_id, category_name FROM dim_expense_categories")
-        category_lookup = {name: id for id, name in cursor.fetchall()}
-        
-        cursor.execute("BEGIN TRANSACTION;")
-        
+        # 2. Map new transaction records to dimension IDs
         transactions_data = []
-        for _, row in df.iterrows():
+        start_id = int(df_trans_old["transaction_id"].max()) + 1 if not df_trans_old.empty else 1
+        for idx, row in df.iterrows():
             dept_id = dept_lookup.get(row["department"])
             region_id = region_lookup.get(row["region"])
             product_id = product_lookup.get(row["product_line"])
             category_id = category_lookup.get(row["expense_category"])
             client_val = row["client_id"] if "client_id" in df.columns and pd.notna(row["client_id"]) else ""
             
-            transactions_data.append((
-                row["date"],
-                row["revenue"],
-                row["expenses"],
-                dept_id,
-                region_id,
-                product_id,
-                category_id,
-                client_val
-            ))
+            transactions_data.append({
+                "transaction_id": start_id + idx,
+                "date": row["date"],
+                "revenue": row["revenue"],
+                "expenses": row["expenses"],
+                "dept_id": dept_id,
+                "region_id": region_id,
+                "product_id": product_id,
+                "category_id": category_id,
+                "client_id": client_val
+            })
+        df_trans_new = pd.DataFrame(transactions_data)
+        df_trans_all = pd.concat([df_trans_old, df_trans_new], ignore_index=True)
+        
+        # 3. Save all sheets back to Excel
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+            df_trans_all.to_excel(writer, sheet_name="fact_transactions", index=False)
+            df_budgets_old.to_excel(writer, sheet_name="fact_budgets", index=False)
+            df_invoices_old.to_excel(writer, sheet_name="fact_invoices", index=False)
+            df_depts_old.to_excel(writer, sheet_name="dim_departments", index=False)
+            df_regions_old.to_excel(writer, sheet_name="dim_regions", index=False)
+            df_products_old.to_excel(writer, sheet_name="dim_products", index=False)
+            df_cats_old.to_excel(writer, sheet_name="dim_expense_categories", index=False)
+            df_log_old.to_excel(writer, sheet_name="ingestion_log", index=False)
             
-        cursor.executemany("""
-        INSERT INTO fact_transactions (date, revenue, expenses, dept_id, region_id, product_id, category_id, client_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, transactions_data)
-        
-        cursor.execute("COMMIT;")
-        conn.close()
-        
-        # Trigger excel recompilation to include new transactions!
-        excel_generator.create_styled_excel(db_path, "financial_analysis.xlsx")
+        # Re-trigger styled report sheets recompilation
+        excel_generator.create_styled_excel(excel_path)
         
         return True, len(df)
         
     except Exception as e:
-        cursor.execute("ROLLBACK;")
-        conn.close()
-        print(f"Error merging: {e}")
+        print(f"Error merging to Excel: {e}")
         return False, str(e)
 
-def process_file_upload(filepath, filename, db_path="src/financial.db"):
+def process_file_upload(filepath, filename, excel_path="financial_analysis.xlsx"):
     submitted_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     
+    if not os.path.exists(excel_path):
+        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        excel_path = os.path.join(base_dir, excel_path)
+        
     try:
         if filename.endswith(".csv"):
             df_raw = pd.read_csv(filepath)
@@ -267,7 +287,7 @@ def process_file_upload(filepath, filename, db_path="src/financial.db"):
         
     df_mapped = map_columns(df_raw)
     
-    # Clean
+    # Clean mappings
     df_clean = df_mapped.copy()
     df_clean["revenue"] = df_mapped["revenue"].apply(clean_numeric)
     df_clean["expenses"] = df_mapped["expenses"].apply(clean_numeric)
@@ -277,7 +297,7 @@ def process_file_upload(filepath, filename, db_path="src/financial.db"):
         df_clean[str_col] = df_clean[str_col].apply(lambda x: str(x).strip() if pd.notna(x) else np.nan)
         
     # Run audits
-    issues, row_issues_mask, health_score = run_data_quality_checks(df_clean, db_path)
+    issues, row_issues_mask, health_score = run_data_quality_checks(df_clean, excel_path)
     
     if health_score >= 0.8:
         status = "Accepted"
@@ -286,9 +306,6 @@ def process_file_upload(filepath, filename, db_path="src/financial.db"):
     else:
         status = "Rejected"
         
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    
     accepted_rows = 0
     rejected_rows = 0
     merge_success = False
@@ -297,7 +314,7 @@ def process_file_upload(filepath, filename, db_path="src/financial.db"):
     issues_json_str = json.dumps(issues_summary)
     
     if status in ["Accepted", "Needs Review"]:
-        merge_success, merge_info = merge_batch_to_db(df_clean, db_path)
+        merge_success, merge_info = merge_batch_to_excel(df_clean, excel_path)
         if merge_success:
             accepted_rows = n_rows
         else:
@@ -307,14 +324,47 @@ def process_file_upload(filepath, filename, db_path="src/financial.db"):
     else:
         rejected_rows = n_rows
         
-    cursor.execute("""
-    INSERT INTO ingestion_log (submitted_at, filename, row_count, status, health_score, issues_json, accepted_rows, rejected_rows)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (submitted_at, filename, n_rows, status, health_score, issues_json_str, accepted_rows, rejected_rows))
-    
-    conn.commit()
-    conn.close()
-    
+    # Log to ingestion_log worksheet
+    try:
+        df_log_old = pd.read_excel(excel_path, sheet_name="ingestion_log")
+        start_log_id = int(df_log_old["batch_id"].max()) + 1 if not df_log_old.empty else 1
+        
+        new_log = pd.DataFrame([{
+            "batch_id": start_log_id,
+            "submitted_at": submitted_at,
+            "filename": filename,
+            "row_count": n_rows,
+            "status": status,
+            "health_score": round(health_score * 100, 2),
+            "issues_json": issues_json_str,
+            "accepted_rows": accepted_rows,
+            "rejected_rows": rejected_rows
+        }])
+        
+        df_log_all = pd.concat([df_log_old, new_log], ignore_index=True)
+        
+        # Load all updated sheets to save back
+        df_trans = pd.read_excel(excel_path, sheet_name="fact_transactions")
+        df_budgets = pd.read_excel(excel_path, sheet_name="fact_budgets")
+        df_invoices = pd.read_excel(excel_path, sheet_name="fact_invoices")
+        df_depts = pd.read_excel(excel_path, sheet_name="dim_departments")
+        df_regions = pd.read_excel(excel_path, sheet_name="dim_regions")
+        df_products = pd.read_excel(excel_path, sheet_name="dim_products")
+        df_cats = pd.read_excel(excel_path, sheet_name="dim_expense_categories")
+        
+        with pd.ExcelWriter(excel_path, engine="openpyxl") as writer:
+            df_trans.to_excel(writer, sheet_name="fact_transactions", index=False)
+            df_budgets.to_excel(writer, sheet_name="fact_budgets", index=False)
+            df_invoices.to_excel(writer, sheet_name="fact_invoices", index=False)
+            df_depts.to_excel(writer, sheet_name="dim_departments", index=False)
+            df_regions.to_excel(writer, sheet_name="dim_regions", index=False)
+            df_products.to_excel(writer, sheet_name="dim_products", index=False)
+            df_cats.to_excel(writer, sheet_name="dim_expense_categories", index=False)
+            df_log_all.to_excel(writer, sheet_name="ingestion_log", index=False)
+            
+    except Exception as e:
+        print(f"Error logging batch: {e}")
+        
     return {
         "success": merge_success or status == "Needs Review",
         "status": status,
@@ -326,7 +376,6 @@ def process_file_upload(filepath, filename, db_path="src/financial.db"):
     }
 
 if __name__ == "__main__":
-    # Test column mapping on clean data
     print("Testing Ingestion mapper...")
     df_test = pd.DataFrame(columns=["Date", "Rev", "Outflow", "division", "area", "line", "type"])
     print(list(map_columns(df_test).columns))
