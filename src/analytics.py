@@ -178,8 +178,133 @@ def get_expenses_by_category(db_path="src/financial.db"):
     conn.close()
     return df
 
+def get_revenue_cohorts(db_path="src/financial.db"):
+    query = """
+    WITH ClientCohort AS (
+        SELECT 
+            client_id,
+            MIN(strftime('%Y-%m', date)) as cohort_month
+        FROM fact_transactions
+        WHERE revenue > 0 AND client_id IS NOT NULL AND client_id != ''
+        GROUP BY client_id
+    ),
+    ClientMonthlyRevenue AS (
+        SELECT 
+            client_id,
+            strftime('%Y-%m', date) as trans_month,
+            SUM(revenue) as monthly_rev
+        FROM fact_transactions
+        WHERE revenue > 0 AND client_id IS NOT NULL AND client_id != ''
+        GROUP BY client_id, trans_month
+    ),
+    CohortSizes AS (
+        SELECT 
+            cohort_month,
+            COUNT(DISTINCT client_id) as total_clients
+        FROM ClientCohort
+        GROUP BY cohort_month
+    ),
+    CohortSpend AS (
+        SELECT 
+            cc.cohort_month,
+            (CAST(substr(cm.trans_month, 1, 4) AS INTEGER) - CAST(substr(cc.cohort_month, 1, 4) AS INTEGER)) * 12 + 
+            (CAST(substr(cm.trans_month, 6, 2) AS INTEGER) - CAST(substr(cc.cohort_month, 6, 2) AS INTEGER)) as elapsed_months,
+            SUM(cm.monthly_rev) as cohort_revenue,
+            COUNT(DISTINCT cm.client_id) as active_clients
+        FROM ClientCohort cc
+        JOIN ClientMonthlyRevenue cm ON cc.client_id = cm.client_id
+        GROUP BY cc.cohort_month, elapsed_months
+    ),
+    BaseRevenue AS (
+        SELECT 
+            cohort_month,
+            cohort_revenue as base_rev
+        FROM CohortSpend
+        WHERE elapsed_months = 0
+    )
+    SELECT 
+        cs.cohort_month,
+        cs.total_clients,
+        ROUND(br.base_rev, 2) as base_rev,
+        c.elapsed_months,
+        ROUND(c.cohort_revenue, 2) as cohort_revenue,
+        c.active_clients,
+        ROUND((c.cohort_revenue / br.base_rev) * 100.0, 2) as revenue_retention_pct,
+        ROUND((c.active_clients * 100.0 / cs.total_clients), 2) as client_retention_pct
+    FROM CohortSpend c
+    JOIN CohortSizes cs ON c.cohort_month = cs.cohort_month
+    JOIN BaseRevenue br ON c.cohort_month = br.cohort_month
+    WHERE c.elapsed_months >= 0 AND c.elapsed_months < 12
+    ORDER BY cs.cohort_month, c.elapsed_months;
+    """
+    conn = get_connection(db_path)
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
+def get_invoice_funnel(db_path="src/financial.db"):
+    query = """
+    WITH InvoiceNumericStatus AS (
+        SELECT 
+            invoice_id,
+            amount,
+            CASE 
+                WHEN status = '1-Created' THEN 1
+                WHEN status = '2-Delivered' THEN 2
+                WHEN status = '3-Approved' THEN 3
+                WHEN status = '4-Pending Payment' THEN 4
+                WHEN status = '5-Settled' THEN 5
+                ELSE 1
+            END as status_num
+        FROM fact_invoices
+    )
+    SELECT 
+        '1. Created' as stage,
+        COUNT(*) as invoice_count,
+        ROUND(SUM(amount), 2) as total_amount,
+        100.0 as pct_conversion
+    FROM InvoiceNumericStatus
+    UNION ALL
+    SELECT 
+        '2. Delivered' as stage,
+        COUNT(*) as invoice_count,
+        ROUND(SUM(amount), 2) as total_amount,
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM InvoiceNumericStatus), 2) as pct_conversion
+    FROM InvoiceNumericStatus WHERE status_num >= 2
+    UNION ALL
+    SELECT 
+        '3. Approved' as stage,
+        COUNT(*) as invoice_count,
+        ROUND(SUM(amount), 2) as total_amount,
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM InvoiceNumericStatus), 2) as pct_conversion
+    FROM InvoiceNumericStatus WHERE status_num >= 3
+    UNION ALL
+    SELECT 
+        '4. Pending Payment' as stage,
+        COUNT(*) as invoice_count,
+        ROUND(SUM(amount), 2) as total_amount,
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM InvoiceNumericStatus), 2) as pct_conversion
+    FROM InvoiceNumericStatus WHERE status_num >= 4
+    UNION ALL
+    SELECT 
+        '5. Settled' as stage,
+        COUNT(*) as invoice_count,
+        ROUND(SUM(amount), 2) as total_amount,
+        ROUND(COUNT(*) * 100.0 / (SELECT COUNT(*) FROM InvoiceNumericStatus), 2) as pct_conversion
+    FROM InvoiceNumericStatus WHERE status_num = 5;
+    """
+    conn = get_connection(db_path)
+    df = pd.read_sql_query(query, conn)
+    conn.close()
+    return df
+
 if __name__ == "__main__":
     print("Testing financial analytics query engine...")
     print(get_kpis("src/financial.db"))
     print("\nRegional Profitability:")
     print(get_regional_profitability("src/financial.db"))
+    print("\nRevenue Cohort sample:")
+    print(get_revenue_cohorts("src/financial.db").head())
+    print("\nInvoice Funnel:")
+    print(get_invoice_funnel("src/financial.db"))
+

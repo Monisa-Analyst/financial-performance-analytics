@@ -15,7 +15,8 @@ COLUMN_MAPPING = {
     "department": ["department", "dept", "cost_center", "division"],
     "region": ["region", "area", "zone", "location"],
     "product_line": ["product line", "product_line", "product", "segment", "line"],
-    "expense_category": ["expense category", "expense_category", "category", "type", "expense_type"]
+    "expense_category": ["expense category", "expense_category", "category", "type", "expense_type"],
+    "client_id": ["client id", "client_id", "client", "customer id", "customer_id", "customer"]
 }
 
 def map_columns(df):
@@ -215,6 +216,7 @@ def merge_batch_to_db(df, db_path="src/financial.db"):
             region_id = region_lookup.get(row["region"])
             product_id = product_lookup.get(row["product_line"])
             category_id = category_lookup.get(row["expense_category"])
+            client_val = row["client_id"] if "client_id" in df.columns and pd.notna(row["client_id"]) else ""
             
             transactions_data.append((
                 row["date"],
@@ -223,12 +225,13 @@ def merge_batch_to_db(df, db_path="src/financial.db"):
                 dept_id,
                 region_id,
                 product_id,
-                category_id
+                category_id,
+                client_val
             ))
             
         cursor.executemany("""
-        INSERT INTO fact_transactions (date, revenue, expenses, dept_id, region_id, product_id, category_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO fact_transactions (date, revenue, expenses, dept_id, region_id, product_id, category_id, client_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, transactions_data)
         
         cursor.execute("COMMIT;")
@@ -270,7 +273,7 @@ def process_file_upload(filepath, filename, db_path="src/financial.db"):
     df_clean["expenses"] = df_mapped["expenses"].apply(clean_numeric)
     df_clean["date"] = df_mapped["date"].apply(parse_date)
     
-    for str_col in ["department", "region", "product_line", "expense_category"]:
+    for str_col in ["department", "region", "product_line", "expense_category", "client_id"]:
         df_clean[str_col] = df_clean[str_col].apply(lambda x: str(x).strip() if pd.notna(x) else np.nan)
         
     # Run audits
