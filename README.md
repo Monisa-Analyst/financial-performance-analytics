@@ -2,7 +2,7 @@
 
 An end-to-end financial data engineering and business intelligence platform designed to ingest daily corporate transactions, audit data quality, reconcile monthly budgets, and analyze profitability. FinSight bridges raw data engineering (SQL star schemas, Python ETL) with visual storytelling (multi-page Streamlit dashboards, Plotly charts) and advanced financial modeling (custom-formatted Excel workbooks built programmatically).
 
-👉 **[Live Web Application Link](https://financial-performance-analytics.streamlit.app/)**
+👉 **[Live Web Application Link](https://share.streamlit.io/monisa-analyst/financial-performance-analytics/main/src/app.py)**
 
 ---
 
