@@ -7,9 +7,13 @@ import streamlit as st
 from datetime import datetime
 
 # Import backend modules
+import importlib
 import analytics
+importlib.reload(analytics)
 import ingestion
+importlib.reload(ingestion)
 import excel_generator
+importlib.reload(excel_generator)
 
 st.set_page_config(
     page_title="FinSight — Corporate Financial Performance Analytics",
